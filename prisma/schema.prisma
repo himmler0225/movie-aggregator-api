@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// profiles.id references auth.users(id) at DB level (Supabase Auth)
+model Profile {
+  id        String   @id @db.Uuid
+  email     String?
+  fullName  String?  @map("full_name")
+  avatarUrl String?  @map("avatar_url")
+  role      String   @default("user")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("profiles")
+}
+
+model Favorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  movieSlug String   @map("movie_slug")
+  movieName String   @map("movie_name")
+  thumbUrl  String?  @map("thumb_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, movieSlug])
+  @@index([userId])
+  @@map("favorites")
+}
+
+model Comment {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  movieSlug   String   @map("movie_slug")
+  content     String
+  likes       Int      @default(0)
+  isSpoiler   Boolean  @default(false) @map("is_spoiler")
+  episodeName String?  @map("episode_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([movieSlug, episodeName])
+  @@map("movie_comments")
+}
+
+model MovieRating {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  movieSlug String   @map("movie_slug")
+  score     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, movieSlug])
+  @@index([movieSlug])
+  @@map("movie_ratings")
+}
+
+model WatchHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  movieSlug    String   @map("movie_slug")
+  movieName    String   @map("movie_name")
+  thumbUrl     String?  @map("thumb_url")
+  episodeName  String   @map("episode_name")
+  episodeIndex Int?     @map("episode_index")
+  serverIndex  Int      @default(0) @map("server_index")
+  progressSec  Int      @default(0) @map("progress_sec")
+  durationSec  Int      @default(0) @map("duration_sec")
+  completed    Boolean  @default(false)
+  watchedAt    DateTime @default(now()) @map("watched_at")
+
+  @@unique([userId, movieSlug, episodeName])
+  @@index([userId, watchedAt(sort: Desc)])
+  @@map("watch_history")
+}
+
+model UserWatchlist {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  listKey   String   @map("list_key")
+  name      String
+  slugs     String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, listKey])
+  @@index([userId])
+  @@map("user_watchlists")
+}
+
+model WatchRoom {
+  id           String   @id @default(uuid()) @db.Uuid
+  code         String   @unique
+  hostId       String   @map("host_id") @db.Uuid
+  movieSlug    String   @map("movie_slug")
+  movieName    String?  @map("movie_name")
+  thumbUrl     String?  @map("thumb_url")
+  episodeName  String?  @map("episode_name")
+  serverIndex  Int      @default(0) @map("server_index")
+  playbackTime Float    @default(0) @map("playback_time")
+  isPlaying    Boolean  @default(false) @map("is_playing")
+  isPrivate    Boolean  @default(false) @map("is_private")
+  pin          String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  expiresAt    DateTime @map("expires_at")
+
+  members  RoomMember[]
+  messages RoomMessage[]
+
+  @@index([code])
+  @@map("watch_rooms")
+}
+
+model RoomMember {
+  id        String    @id @default(uuid()) @db.Uuid
+  roomId    String    @map("room_id") @db.Uuid
+  room      WatchRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String    @map("user_id") @db.Uuid
+  username  String?
+  avatarUrl String?   @map("avatar_url")
+  joinedAt  DateTime  @default(now()) @map("joined_at")
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@map("room_members")
+}
+
+model RoomMessage {
+  id        String    @id @default(uuid()) @db.Uuid
+  roomId    String    @map("room_id") @db.Uuid
+  room      WatchRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String    @map("user_id") @db.Uuid
+  username  String?
+  avatarUrl String?   @map("avatar_url")
+  content   String
+  type      String    @default("message")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([roomId, createdAt(sort: Desc)])
+  @@map("room_messages")
+}
+
+model PageView {
+  id       String   @id @default(uuid()) @db.Uuid
+  pageType String?  @map("page_type")
+  viewedAt DateTime @default(now()) @map("viewed_at")
+
+  @@index([viewedAt])
+  @@map("page_views")
+}
+
+model WatchEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String?  @map("user_id") @db.Uuid
+  movieSlug        String   @map("movie_slug")
+  movieName        String?  @map("movie_name")
+  thumbUrl         String?  @map("thumb_url")
+  episodeName      String?  @map("episode_name")
+  serverName       String?  @map("server_name")
+  username         String?
+  avatarUrl        String?  @map("avatar_url")
+  watchDurationSec Int?     @map("watch_duration_sec")
+  completed        Boolean? @default(false)
+  lang             String?
+  quality          String?
+  startedAt        DateTime @default(now()) @map("started_at")
+
+  @@index([movieSlug, startedAt])
+  @@index([startedAt])
+  @@map("watch_events")
+}
+
+model SearchLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  keyword      String
+  resultsCount Int?     @map("results_count")
+  clickedSlug  String?  @map("clicked_slug")
+  searchedAt   DateTime @default(now()) @map("searched_at")
+
+  @@index([searchedAt])
+  @@map("search_logs")
+}

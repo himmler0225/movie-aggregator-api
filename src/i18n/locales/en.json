@@ -1,0 +1,36 @@
+{
+  "errors": {
+    "BAD_REQUEST": "Invalid request.",
+    "MISSING_KEYWORD": "Missing required query parameter: keyword",
+    "INVALID_MOVIE_TYPE": "Invalid movie type.",
+    "INVALID_YEAR": "Invalid release year.",
+    "INVALID_IMAGE_URL": "Invalid image URL. Only phimimg.com domain is supported.",
+    "MOVIE_NOT_FOUND": "Movie not found.",
+    "UPSTREAM_ERROR": "Unable to load data. Please try again later.",
+    "UPSTREAM_TIMEOUT": "Upstream request timed out. Please try again later.",
+    "INTERNAL_ERROR": "Internal Server Error",
+    "UNAUTHORIZED": "Unauthorized",
+    "NOT_FOUND": "Not found.",
+    "FORBIDDEN": "Forbidden"
+  },
+  "auth": {
+    "oauthNotConfigured": "Google OAuth is not configured",
+    "oauthStateInvalid": "Invalid or expired OAuth state",
+    "oauthExchangeFailed": "Failed to exchange Google authorization code",
+    "oauthProfileFailed": "Failed to fetch Google user profile",
+    "oauthNoEmail": "Google account has no email",
+    "profileEnsureFailed": "Failed to ensure user profile",
+    "userNoEmail": "User has no email",
+    "registrationFailed": "Registration failed",
+    "invalidCredentials": "Invalid credentials",
+    "passwordTooShort": "Password too short",
+    "googleUserCreateFailed": "Failed to create Google user",
+    "adminRequired": "Admin access required",
+    "emailAlreadyRegistered": "Email already registered"
+  },
+  "platform": {
+    "roomNotFound": "Room not found",
+    "onlyHostPlayback": "Only host can update playback",
+    "onlyHostClose": "Only host can close room"
+  }
+}

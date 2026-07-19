@@ -1,0 +1,36 @@
+{
+  "errors": {
+    "BAD_REQUEST": "Yêu cầu không hợp lệ.",
+    "MISSING_KEYWORD": "Thiếu tham số bắt buộc: keyword",
+    "INVALID_MOVIE_TYPE": "Loại phim không hợp lệ.",
+    "INVALID_YEAR": "Năm phát hành không hợp lệ.",
+    "INVALID_IMAGE_URL": "URL ảnh không hợp lệ. Chỉ hỗ trợ domain phimimg.com.",
+    "MOVIE_NOT_FOUND": "Không tìm thấy phim.",
+    "UPSTREAM_ERROR": "Không thể tải dữ liệu. Vui lòng thử lại sau.",
+    "UPSTREAM_TIMEOUT": "Yêu cầu upstream quá thời gian. Vui lòng thử lại sau.",
+    "INTERNAL_ERROR": "Lỗi máy chủ nội bộ",
+    "UNAUTHORIZED": "Chưa xác thực",
+    "NOT_FOUND": "Không tìm thấy.",
+    "FORBIDDEN": "Không có quyền truy cập"
+  },
+  "auth": {
+    "oauthNotConfigured": "Chưa cấu hình Google OAuth",
+    "oauthStateInvalid": "Phiên OAuth không hợp lệ hoặc đã hết hạn",
+    "oauthExchangeFailed": "Không thể đổi mã xác thực Google",
+    "oauthProfileFailed": "Không thể lấy thông tin tài khoản Google",
+    "oauthNoEmail": "Tài khoản Google không có email",
+    "profileEnsureFailed": "Không thể tạo hồ sơ người dùng",
+    "userNoEmail": "Người dùng không có email",
+    "registrationFailed": "Đăng ký thất bại",
+    "invalidCredentials": "Email hoặc mật khẩu không đúng",
+    "passwordTooShort": "Mật khẩu quá ngắn",
+    "googleUserCreateFailed": "Không thể tạo tài khoản Google",
+    "adminRequired": "Yêu cầu quyền quản trị viên",
+    "emailAlreadyRegistered": "Email đã được đăng ký"
+  },
+  "platform": {
+    "roomNotFound": "Không tìm thấy phòng",
+    "onlyHostPlayback": "Chỉ chủ phòng mới được cập nhật phát",
+    "onlyHostClose": "Chỉ chủ phòng mới được đóng phòng"
+  }
+}
