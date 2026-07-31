@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Comment } from '@prisma/client';
 import { CommentsRepository } from '../../database/repositories/comments.repository';
 import { ProfilesRepository } from '../../database/repositories/profiles.repository';
+import { QUERY_LIMITS } from '../../shared/constants';
 import type { CommentView, CreateCommentInput } from '../types';
 
 @Injectable()
@@ -10,17 +11,14 @@ export class CommentsService {
     private readonly comments: CommentsRepository,
     private readonly profiles: ProfilesRepository,
   ) {}
-
   async mapCommentRows(rows: Comment[]): Promise<CommentView[]> {
     return this.mapRows(rows);
   }
-
   private async mapRows(rows: Comment[]): Promise<CommentView[]> {
     if (!rows.length) return [];
     const userIds = [...new Set(rows.map((r) => r.userId))];
     const profileRows = await this.profiles.findByIds(userIds);
     const profileMap = new Map(profileRows.map((p) => [p.id, p]));
-
     return rows.map((row) => {
       const profile = profileMap.get(row.userId);
       return {
@@ -37,12 +35,13 @@ export class CommentsService {
       };
     });
   }
-
-  async listByMovie(slug: string, limit = 50) {
+  async listByMovie(
+    slug: string,
+    limit: number = QUERY_LIMITS.commentsPerMovie,
+  ) {
     const rows = await this.comments.findByMovieSlug(slug, limit);
     return this.mapRows(rows);
   }
-
   async create(input: CreateCommentInput) {
     await this.comments.create({
       userId: input.userId,

@@ -1,7 +1,8 @@
+import type { Role } from '../../shared/constants';
+
 export interface UpdateProfileInput {
   username?: string;
   avatar_url?: string;
-  plan?: string;
 }
 
 export interface ProfileView {
@@ -16,7 +17,7 @@ export interface ProfileView {
 export interface ListUsersOptions {
   query: string;
   sort: 'new' | 'name';
-  filter: 'all' | 'free' | 'premium' | 'admin';
+  filter: 'all' | 'free' | Exclude<Role, 'user'>;
   page: number;
   pageSize: number;
 }

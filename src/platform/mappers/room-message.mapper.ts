@@ -4,7 +4,14 @@ import type { RoomMessageView } from '../types';
 export function mapRoomMessage(
   m: Pick<
     RoomMessage,
-    'id' | 'roomId' | 'userId' | 'username' | 'avatarUrl' | 'content' | 'type' | 'createdAt'
+    | 'id'
+    | 'roomId'
+    | 'userId'
+    | 'username'
+    | 'avatarUrl'
+    | 'content'
+    | 'type'
+    | 'createdAt'
   >,
 ): RoomMessageView {
   return {

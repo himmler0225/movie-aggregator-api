@@ -61,10 +61,11 @@ export interface MovieDetail extends MovieListItem {
   showtimes?: string;
   view?: number;
   notify?: string;
-  modified?: { time: string };
+  modified?: {
+    time: string;
+  };
 }
 
-/** Unified response envelope for all movie endpoints. */
 export interface MovieApiResponse<T> {
   source: string;
   data: T;
@@ -77,5 +78,7 @@ export interface MovieDetailData {
 }
 
 export type MovieListApiResponse = MovieApiResponse<MovieListItem[]>;
+
 export type MovieDetailApiResponse = MovieApiResponse<MovieDetailData>;
+
 export type MetadataListApiResponse = MovieApiResponse<MetadataItem[]>;

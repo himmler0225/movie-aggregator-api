@@ -1,11 +1,13 @@
 import { PAGINATION } from '../shared/constants/pagination.constant';
-import type { MovieFilterParams, SearchParams } from '../shared/types/filter.type';
+import type {
+  MovieFilterParams,
+  SearchParams,
+} from '../shared/types/filter.type';
 import type { PaginationParams } from '../shared/types/pagination.type';
 import type { MovieFilterDto } from './dto/movie-filter.dto';
 import type { SearchQueryDto } from './dto/search-query.dto';
 import { cleanParams } from '../shared/utils/url.util';
 
-/** Normalize page/limit using defaults from constants. */
 export const resolvePagination = (
   params: PaginationParams = {},
 ): Required<Pick<PaginationParams, 'page' | 'limit'>> => ({
@@ -13,7 +15,6 @@ export const resolvePagination = (
   limit: params.limit ?? PAGINATION.defaultLimit,
 });
 
-/** Map DTO HTTP → domain filter (controller → service). */
 export const toMovieFilterParams = (
   dto: MovieFilterDto,
 ): MovieFilterParams => ({
@@ -33,7 +34,6 @@ export const toSearchParams = (dto: SearchQueryDto): SearchParams => ({
   limit: dto.limit,
 });
 
-/** Extract content sort/filter params for upstream queries. */
 export const pickContentFilters = (
   filters: MovieFilterParams,
 ): Omit<MovieFilterParams, 'page' | 'limit'> => ({
@@ -45,17 +45,16 @@ export const pickContentFilters = (
   sort_type: filters.sort_type,
 });
 
-/** Build upstream list query string — respects per-source capabilities. */
 export const buildUpstreamListParams = (
   filters: MovieFilterParams,
-  options: { supportsContentFilters: boolean },
+  options: {
+    supportsContentFilters: boolean;
+  },
 ): Record<string, string | number> => {
   const { page, limit } = resolvePagination(filters);
-
   if (!options.supportsContentFilters) {
     return { page, limit };
   }
-
   return cleanParams({
     page,
     limit,

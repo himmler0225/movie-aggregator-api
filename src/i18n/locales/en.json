@@ -31,6 +31,9 @@
   "platform": {
     "roomNotFound": "Room not found",
     "onlyHostPlayback": "Only host can update playback",
-    "onlyHostClose": "Only host can close room"
+    "onlyHostClose": "Only host can close room",
+    "notRoomMember": "You must join this room to view it",
+    "invalidPin": "Incorrect PIN",
+    "privateRoomRequiresPremium": "Private rooms require a premium account"
   }
 }

@@ -32,7 +32,7 @@ export function mapWatchRoom(
     playback_time: r.playbackTime,
     is_playing: r.isPlaying,
     is_private: r.isPrivate,
-    pin: r.pin,
+    has_pin: !!r.pin,
     created_at: r.createdAt.toISOString(),
     expires_at: r.expiresAt.toISOString(),
   };

@@ -1,5 +1,4 @@
 import './load-env';
-
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -12,13 +11,10 @@ import { logRegisteredRoutes } from './shared/utils/log-routes.util';
 async function bootstrap() {
   const logger = AppLogger.create('Bootstrap');
   const app = await NestFactory.create(AppModule);
-
   const appConfig = app.get(AppConfigService);
-
   app.enableCors({
     origin: appConfig.corsOriginOption,
   });
-
   app.useGlobalInterceptors(new HttpLoggingInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
@@ -27,13 +23,10 @@ async function bootstrap() {
       forbidNonWhitelisted: false,
     }),
   );
-
   setupSwagger(app);
   logRegisteredRoutes(app);
-
   const port = appConfig.port;
   await app.listen(port);
-
   logger.log(`API:  ${appConfig.apiPublicUrl}`);
   logger.log(`Docs: ${appConfig.apiPublicUrl}/${SWAGGER_PATH}`);
 }

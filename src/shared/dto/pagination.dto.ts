@@ -15,7 +15,6 @@ export class PaginationDto {
   @IsInt()
   @Min(PAGINATION.minPage)
   page?: number = PAGINATION.defaultPage;
-
   @ApiPropertyOptional({
     default: PAGINATION.defaultLimit,
     minimum: PAGINATION.minPage,

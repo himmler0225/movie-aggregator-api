@@ -94,20 +94,16 @@ describe('MoviesService VSMOV source', () => {
     getBinary: jest.fn(),
   } as unknown as UpstreamClientService;
   const service = new MoviesService(upstream);
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
-
   it('maps phim-bo to the documented VSMOV series query', async () => {
     getJson.mockResolvedValue(listResponse);
-
     const result = await service.getMoviesByType(
       'phim-bo',
       { page: 1, limit: 24 },
       'vsmov',
     );
-
     expect(getJson).toHaveBeenCalledWith(
       'https://vsmov.com/api/danh-sach?page=1&limit=24&type=series',
       'list',
@@ -128,37 +124,30 @@ describe('MoviesService VSMOV source', () => {
       },
     });
   });
-
   it('keeps existing sources first and reaches VSMOV as the final fallback', async () => {
     getJson
       .mockRejectedValueOnce(new AppError(AppErrorCode.UPSTREAM_ERROR))
       .mockRejectedValueOnce(new AppError(AppErrorCode.UPSTREAM_ERROR))
       .mockResolvedValueOnce(listResponse);
-
     const result = await service.getNewMovies(1);
-
-    expect(getJson.mock.calls.map(([url]) => url)).toEqual([
+    expect(getJson.mock.calls.map(([url]: [string]) => url)).toEqual([
       'https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=1',
       'https://ophim1.com/danh-sach/phim-moi-cap-nhat?page=1',
       'https://vsmov.com/api/danh-sach/phim-moi-cap-nhat?page=1',
     ]);
     expect(result.source).toBe('vsmov');
   });
-
   it('does not invent unsupported VSMOV type mappings', async () => {
     await expect(
       service.getMoviesByType('hoat-hinh', {}, 'vsmov'),
-    ).rejects.toMatchObject<AppError>({
+    ).rejects.toMatchObject({
       code: AppErrorCode.BAD_REQUEST,
     });
     expect(getJson).not.toHaveBeenCalled();
   });
-
   it('normalizes VSMOV embed-only episodes for the unified contract', async () => {
     getJson.mockResolvedValue(detailResponse);
-
     const result = await service.getMovieDetail('cau-be-mat-tich-p4', 'vsmov');
-
     expect(result.source).toBe('vsmov');
     expect(result.data.movie.category?.[0]).toEqual({
       id: '17',
@@ -172,12 +161,9 @@ describe('MoviesService VSMOV source', () => {
       }),
     );
   });
-
   it('unwraps VSMOV metadata and converts numeric IDs', async () => {
     getJson.mockResolvedValue(metadataResponse);
-
     const result = await service.getAllGenres('vsmov');
-
     expect(result).toEqual({
       source: 'vsmov',
       data: [
@@ -189,12 +175,9 @@ describe('MoviesService VSMOV source', () => {
       ],
     });
   });
-
   it('uses VSMOV for year metadata by default', async () => {
     getJson.mockResolvedValue(metadataResponse);
-
     await service.getAllYears();
-
     expect(getJson).toHaveBeenCalledWith('https://vsmov.com/api/nam', 'meta');
   });
 });

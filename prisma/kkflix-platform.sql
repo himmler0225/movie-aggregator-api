@@ -1,5 +1,4 @@
--- KK-Flix platform tables (idempotent)
--- Chạy: yarn prisma:setup
+
 
 CREATE TABLE IF NOT EXISTS public.favorites (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,

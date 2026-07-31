@@ -1,7 +1,13 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { RoomMembersRepository } from '../../database/repositories/room-members.repository';
 import { RoomMessagesRepository } from '../../database/repositories/room-messages.repository';
 import { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
+import { PermissionsService } from '../auth/permissions.service';
+import { QUERY_LIMITS } from '../../shared/constants';
 import { mapRoomMessage, mapWatchRoom } from '../mappers';
 import type {
   AddRoomMemberInput,
@@ -19,12 +25,17 @@ export class WatchPartyService {
     private readonly members: RoomMembersRepository,
     private readonly messages: RoomMessagesRepository,
     private readonly gateway: WatchPartyGateway,
+    private readonly permissions: PermissionsService,
   ) {}
-
   async createRoom(input: CreateRoomInput) {
+    if (
+      input.isPrivate &&
+      !this.permissions.has(input.hostRole, 'watch-party:create-private')
+    ) {
+      throw new ForbiddenException('platform.privateRoomRequiresPremium');
+    }
     const hours = input.expiresHours ?? 6;
-    const expiresAt = new Date(Date.now() + hours * 3600_000);
-
+    const expiresAt = new Date(Date.now() + hours * 3600000);
     const row = await this.rooms.create({
       code: input.code.toUpperCase(),
       hostId: input.hostId,
@@ -39,10 +50,8 @@ export class WatchPartyService {
       pin: input.pin ?? null,
       expiresAt,
     });
-
     return { data: { id: row.id }, error: null };
   }
-
   async fetchRoomByCode(code: string) {
     const row = await this.rooms.findByCode(code);
     if (!row) return { data: null, error: null };
@@ -51,13 +60,22 @@ export class WatchPartyService {
       error: null,
     };
   }
-
   async fetchRoomFull(code: string) {
     const row = await this.rooms.findByCode(code);
     return row ? mapWatchRoom(row) : null;
   }
-
-  async fetchMembers(roomId: string): Promise<RoomMemberView[]> {
+  async assertCanRead(roomId: string, userId: string) {
+    const room = await this.rooms.findById(roomId);
+    if (!room) throw new NotFoundException('platform.roomNotFound');
+    if (!room.isPrivate || room.hostId === userId) return;
+    if (await this.isMember(roomId, userId)) return;
+    throw new ForbiddenException('platform.notRoomMember');
+  }
+  async fetchMembers(
+    roomId: string,
+    requesterId: string,
+  ): Promise<RoomMemberView[]> {
+    await this.assertCanRead(roomId, requesterId);
     const rows = await this.members.findByRoomId(roomId);
     return rows.map((m) => ({
       user_id: m.userId,
@@ -66,12 +84,10 @@ export class WatchPartyService {
       joined_at: m.joinedAt.toISOString(),
     }));
   }
-
   async isMember(roomId: string, userId: string) {
     const row = await this.members.isMember(roomId, userId);
     return !!row;
   }
-
   async addMember(input: AddRoomMemberInput) {
     await this.members.create({
       roomId: input.roomId,
@@ -81,20 +97,30 @@ export class WatchPartyService {
     });
     return { error: null };
   }
-
   async joinAsGuest(
     roomId: string,
     userId: string,
     username: string,
     avatarUrl: string | null,
-    hostId: string,
+    pin: string | null | undefined,
     joinedMessage: string,
   ) {
+    const room = await this.rooms.findById(roomId);
+    if (!room) throw new NotFoundException('platform.roomNotFound');
     const existing = await this.isMember(roomId, userId);
+    const isHost = userId === room.hostId;
+    if (
+      room.isPrivate &&
+      !isHost &&
+      !existing &&
+      room.pin &&
+      room.pin !== (pin ?? '').trim()
+    ) {
+      throw new ForbiddenException('platform.invalidPin');
+    }
     if (existing) return false;
-
     await this.addMember({ roomId, userId, username, avatarUrl });
-    if (userId !== hostId) {
+    if (userId !== room.hostId) {
       await this.insertMessage({
         roomId,
         userId,
@@ -105,8 +131,8 @@ export class WatchPartyService {
     }
     return true;
   }
-
   async insertMessage(input: InsertMessageInput) {
+    await this.assertCanRead(input.roomId, input.userId);
     const row = await this.messages.create({
       roomId: input.roomId,
       userId: input.userId,
@@ -120,17 +146,24 @@ export class WatchPartyService {
     if (room) this.gateway.emitMessageCreated(room.code, mapped);
     return { data: mapped, error: null };
   }
-
-  async fetchMessages(roomId: string, limit = 200) {
+  async fetchMessages(
+    roomId: string,
+    requesterId: string,
+    limit: number = QUERY_LIMITS.roomMessages,
+  ) {
+    await this.assertCanRead(roomId, requesterId);
     const rows = await this.messages.findByRoomId(roomId, limit);
     return rows.map(mapRoomMessage);
   }
-
-  async updatePlayback(roomId: string, hostId: string, state: UpdatePlaybackState) {
+  async updatePlayback(
+    roomId: string,
+    hostId: string,
+    state: UpdatePlaybackState,
+  ) {
     const room = await this.rooms.findById(roomId);
     if (!room) throw new NotFoundException('platform.roomNotFound');
-    if (room.hostId !== hostId) throw new ForbiddenException('platform.onlyHostPlayback');
-
+    if (room.hostId !== hostId)
+      throw new ForbiddenException('platform.onlyHostPlayback');
     await this.rooms.update(
       { id: roomId },
       {
@@ -142,16 +175,15 @@ export class WatchPartyService {
     );
     return { error: null };
   }
-
   async removeMember(roomId: string, userId: string) {
     await this.members.removeMember(roomId, userId);
     return { error: null };
   }
-
   async deleteRoom(roomId: string, hostId: string) {
     const room = await this.rooms.findById(roomId);
     if (!room) throw new NotFoundException('platform.roomNotFound');
-    if (room.hostId !== hostId) throw new ForbiddenException('platform.onlyHostClose');
+    if (room.hostId !== hostId)
+      throw new ForbiddenException('platform.onlyHostClose');
     const code = room.code;
     await this.rooms.delete({ id: roomId });
     this.gateway.emitRoomClosed(code);

@@ -29,12 +29,10 @@ export function setupSwagger(app: INestApplication): void {
     .addTag('Health', 'Service health check')
     .addTag('Movies', 'Unified movie API with kkphim → ophim fallback')
     .build();
-
   const document = SwaggerModule.createDocument(app, config, {
     operationIdFactory: (controllerKey, methodKey) =>
       `${controllerKey}_${methodKey}`,
   });
-
   SwaggerModule.setup(SWAGGER_PATH, app, document, {
     jsonDocumentUrl: `${SWAGGER_PATH}-json`,
     swaggerOptions: {

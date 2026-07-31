@@ -1,7 +1,6 @@
 import { registerAs } from '@nestjs/config';
 import type { AppConfig } from './app-config.type';
 import { APP_URL_DEFAULTS, TRAILING_SLASH_PATTERN } from '../shared/constants';
-
 export type { AppConfig } from './app-config.type';
 
 export const APP_CONFIG_KEY = 'app';
@@ -19,19 +18,28 @@ function parseCorsOrigins(raw?: string): string[] {
   );
 }
 
-/** Shared CORS origin option for Express and Socket.IO gateways. */
 export function resolveCorsOriginOption(
   corsOrigins: string[],
 ): string[] | true {
   return corsOrigins.length ? corsOrigins : true;
 }
 
-/** Single entry point for reading process.env — do not use process.env elsewhere. */
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET is required in production — refusing to start with a guessable default.',
+    );
+  }
+  return 'dev-jwt-secret-change-me';
+}
+
 export function loadAppConfig(): AppConfig {
   return {
     port: parseInt(process.env.PORT ?? '3001', 10),
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
-    jwtSecret: process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me',
+    jwtSecret: resolveJwtSecret(),
     frontendUrl: stripTrailingSlash(
       process.env.FRONTEND_URL ?? APP_URL_DEFAULTS.frontend,
     ),
@@ -43,6 +51,7 @@ export function loadAppConfig(): AppConfig {
     supabaseServiceKey: process.env.SUPABASE_SERVICE_KEY?.trim() ?? '',
     googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '',
+    redisUrl: process.env.REDIS_URL?.trim() ?? '',
   };
 }
 

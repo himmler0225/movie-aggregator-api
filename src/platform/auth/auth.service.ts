@@ -7,11 +7,18 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Profile } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
 import { AppConfigService } from '../../config';
 import { ProfilesRepository } from '../../database/repositories/profiles.repository';
+import { RefreshTokensRepository } from '../../database/repositories/refresh-tokens.repository';
 import { SupabaseService } from '../../database/supabase.service';
-import { SESSION_TOKEN_TTL_SECONDS } from '../../shared/constants';
+import {
+  ACCESS_TOKEN_TTL_SECONDS,
+  REFRESH_TOKEN_TTL_SECONDS,
+  ROLE,
+} from '../../shared/constants';
 import type { SessionResponse } from '../types';
+import { hashRefreshToken } from './auth-refresh.util';
 import { GoogleOAuthService } from './google-oauth.service';
 
 @Injectable()
@@ -19,17 +26,31 @@ export class AuthService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly profiles: ProfilesRepository,
+    private readonly refreshTokens: RefreshTokensRepository,
     private readonly jwt: JwtService,
     private readonly googleOAuth: GoogleOAuthService,
     private readonly appConfig: AppConfigService,
   ) {}
 
-  private buildSession(
+  private async issueRefreshToken(userId: string): Promise<string> {
+    const raw = randomBytes(48).toString('base64url');
+    const tokenHash = hashRefreshToken(raw);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
+    await this.refreshTokens.create({
+      userId,
+      tokenHash,
+      expiresAt,
+    });
+    return raw;
+  }
+
+  private async buildSession(
     user: { id: string; email: string },
     profile?: Profile | null,
     supabaseMeta?: Record<string, unknown>,
-  ): SessionResponse {
-    const expiresIn = SESSION_TOKEN_TTL_SECONDS;
+    opts: { issueRefresh?: boolean } = { issueRefresh: true },
+  ): Promise<SessionResponse> {
+    const expiresIn = ACCESS_TOKEN_TTL_SECONDS;
     const access_token = this.jwt.sign(
       { sub: user.id, email: user.email },
       { expiresIn },
@@ -40,23 +61,28 @@ export class AuthService {
       (supabaseMeta?.picture as string | undefined) ??
       undefined;
 
-    return {
+    const session: SessionResponse = {
       access_token,
       expires_at: Math.floor(Date.now() / 1000) + expiresIn,
       user: {
         id: user.id,
         email: user.email,
         user_metadata: {
-          full_name: profile?.fullName ?? (supabaseMeta?.full_name as string | undefined),
+          full_name: profile?.fullName ?? supabaseMeta?.full_name,
           username:
             profile?.fullName ??
-            (supabaseMeta?.username as string | undefined) ??
+            supabaseMeta?.username ??
             profile?.email?.split('@')[0],
           avatar_url: avatarUrl,
           picture: avatarUrl,
         },
       },
     };
+
+    if (opts.issueRefresh !== false) {
+      session.refresh_token = await this.issueRefreshToken(user.id);
+    }
+    return session;
   }
 
   private async ensureProfile(
@@ -71,7 +97,6 @@ export class AuthService {
         (fullName && fullName !== existing.fullName) ||
         (email && email !== existing.email) ||
         (avatarUrl && avatarUrl !== existing.avatarUrl);
-
       if (needsUpdate) {
         return this.profiles.update(
           { id: userId },
@@ -84,14 +109,13 @@ export class AuthService {
       }
       return existing;
     }
-
     try {
       return await this.profiles.create({
         id: userId,
         email,
         fullName: fullName ?? email.split('@')[0] ?? 'User',
         avatarUrl: avatarUrl ?? null,
-        role: 'user',
+        role: ROLE.USER,
       });
     } catch {
       const again = await this.profiles.findById(userId);
@@ -100,9 +124,18 @@ export class AuthService {
     }
   }
 
-  private sessionFromSupabaseUser(user: SupabaseUser, profile?: Profile | null) {
+  private sessionFromSupabaseUser(
+    user: SupabaseUser,
+    profile?: Profile | null,
+    opts?: { issueRefresh?: boolean },
+  ) {
     if (!user.email) throw new BadRequestException('auth.userNoEmail');
-    return this.buildSession({ id: user.id, email: user.email }, profile, user.user_metadata);
+    return this.buildSession(
+      { id: user.id, email: user.email },
+      profile,
+      user.user_metadata,
+      opts,
+    );
   }
 
   async register(
@@ -112,44 +145,87 @@ export class AuthService {
   ): Promise<SessionResponse> {
     const existing = await this.supabase.findUserByEmail(email);
     if (existing) throw new ConflictException('auth.emailAlreadyRegistered');
-
     const { data, error } = await this.supabase.createUser({
       email,
       password,
       email_confirm: true,
       user_metadata: { username, full_name: username },
     });
-
     if (error || !data.user) {
-      throw new BadRequestException(error?.message ?? 'auth.registrationFailed');
+      throw new BadRequestException(
+        error?.message ?? 'auth.registrationFailed',
+      );
     }
-
-    const profile = await this.ensureProfile(data.user.id, email, username.trim());
+    const profile = await this.ensureProfile(
+      data.user.id,
+      email,
+      username.trim(),
+    );
     return this.sessionFromSupabaseUser(data.user, profile);
   }
 
   async login(email: string, password: string): Promise<SessionResponse> {
-    const { data, error } = await this.supabase.signInWithPassword(email, password);
+    const { data, error } = await this.supabase.signInWithPassword(
+      email,
+      password,
+    );
     if (error || !data.user?.email) {
       throw new UnauthorizedException('auth.invalidCredentials');
     }
-
     const profile = await this.profiles.findById(data.user.id);
     return this.sessionFromSupabaseUser(data.user, profile);
   }
 
-  async getSession(userId: string): Promise<SessionResponse | null> {
+  async getSession(
+    userId: string,
+    opts?: { issueRefresh?: boolean },
+  ): Promise<SessionResponse | null> {
     const { data, error } = await this.supabase.getUserById(userId);
     if (error || !data.user?.email) return null;
-
     const profile = await this.profiles.findById(userId);
-    return this.sessionFromSupabaseUser(data.user, profile);
+    return this.sessionFromSupabaseUser(data.user, profile, {
+      issueRefresh: opts?.issueRefresh === true,
+    });
+  }
+
+  async refresh(refreshToken: string): Promise<SessionResponse> {
+    if (!refreshToken?.trim()) {
+      throw new UnauthorizedException('auth.invalidRefreshToken');
+    }
+    const tokenHash = hashRefreshToken(refreshToken.trim());
+    const stored = await this.refreshTokens.findValidByHash(tokenHash);
+    if (!stored) {
+      throw new UnauthorizedException('auth.invalidRefreshToken');
+    }
+    await this.refreshTokens.revokeByHash(tokenHash);
+
+    const { data, error } = await this.supabase.getUserById(stored.userId);
+    if (error || !data.user?.email) {
+      throw new UnauthorizedException('auth.invalidRefreshToken');
+    }
+    const profile = await this.profiles.findById(stored.userId);
+    return this.sessionFromSupabaseUser(data.user, profile, {
+      issueRefresh: true,
+    });
+  }
+
+  async logout(userId: string, refreshToken?: string): Promise<{ ok: true }> {
+    if (refreshToken?.trim()) {
+      await this.refreshTokens.revokeByHash(
+        hashRefreshToken(refreshToken.trim()),
+      );
+    } else {
+      await this.refreshTokens.revokeAllForUser(userId);
+    }
+    return { ok: true };
   }
 
   async updatePassword(userId: string, password: string): Promise<void> {
-    if (password.length < 6) throw new BadRequestException('auth.passwordTooShort');
+    if (password.length < 6)
+      throw new BadRequestException('auth.passwordTooShort');
     const { error } = await this.supabase.updateUserById(userId, { password });
     if (error) throw new BadRequestException(error.message);
+    await this.refreshTokens.revokeAllForUser(userId);
   }
 
   async requestPasswordReset(email: string): Promise<void> {
@@ -168,10 +244,9 @@ export class AuthService {
     code: string,
     state: string,
   ): Promise<{ session: SessionResponse; frontendRedirect: string }> {
-    const { googleUser, frontendRedirect } = await this.googleOAuth.exchangeCode(code, state);
-
+    const { googleUser, frontendRedirect } =
+      await this.googleOAuth.exchangeCode(code, state);
     let user = await this.supabase.findUserByEmail(googleUser.email);
-
     if (!user) {
       const { data, error } = await this.supabase.createUser({
         email: googleUser.email,
@@ -183,7 +258,6 @@ export class AuthService {
           picture: googleUser.picture,
         },
       });
-
       if (error || !data.user) {
         const existing = await this.supabase.findUserByEmail(googleUser.email);
         if (!existing) {
@@ -205,7 +279,6 @@ export class AuthService {
         },
       });
     }
-
     const profile = await this.ensureProfile(
       user.id,
       googleUser.email,
@@ -217,8 +290,7 @@ export class AuthService {
         (user.user_metadata?.picture as string | undefined) ??
         null,
     );
-
-    const session = this.sessionFromSupabaseUser(user, profile);
+    const session = await this.sessionFromSupabaseUser(user, profile);
     return { session, frontendRedirect };
   }
 }

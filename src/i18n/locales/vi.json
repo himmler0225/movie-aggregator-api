@@ -31,6 +31,9 @@
   "platform": {
     "roomNotFound": "Không tìm thấy phòng",
     "onlyHostPlayback": "Chỉ chủ phòng mới được cập nhật phát",
-    "onlyHostClose": "Chỉ chủ phòng mới được đóng phòng"
+    "onlyHostClose": "Chỉ chủ phòng mới được đóng phòng",
+    "notRoomMember": "Bạn cần tham gia phòng này để xem",
+    "invalidPin": "Mã PIN không đúng",
+    "privateRoomRequiresPremium": "Phòng riêng tư yêu cầu tài khoản premium"
   }
 }

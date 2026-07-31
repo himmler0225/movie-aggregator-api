@@ -8,7 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// profiles.id references auth.users(id) at DB level (Supabase Auth)
 model Profile {
   id        String   @id @db.Uuid
   email     String?
@@ -185,4 +184,26 @@ model SearchLog {
 
   @@index([searchedAt])
   @@map("search_logs")
+}
+
+model RolePermission {
+  id    String @id @default(uuid()) @db.Uuid
+  role  String
+  scope String
+
+  @@unique([role, scope])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }

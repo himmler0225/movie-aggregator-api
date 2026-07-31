@@ -8,16 +8,7 @@ export class WatchRoomsRepository extends BaseRepository<WatchRoom> {
   constructor(prisma: PrismaService) {
     super(prisma, prisma.watchRoom);
   }
-
   findByCode(code: string) {
     return this.findOne({ code: code.toUpperCase() });
-  }
-
-  findActive(limit = 200) {
-    return this.findMany({
-      where: { expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
   }
 }

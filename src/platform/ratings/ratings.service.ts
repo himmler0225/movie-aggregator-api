@@ -4,12 +4,10 @@ import { MovieRatingsRepository } from '../../database/repositories/movie-rating
 @Injectable()
 export class RatingsService {
   constructor(private readonly ratings: MovieRatingsRepository) {}
-
   async getUserRating(userId: string, movieSlug: string) {
     const row = await this.ratings.findUserRating(userId, movieSlug);
     return row?.score ?? null;
   }
-
   async getAggregate(movieSlug: string) {
     const rows = await this.ratings.findByMovieSlug(movieSlug);
     if (!rows.length) return { average: 0, count: 0 };
@@ -19,7 +17,6 @@ export class RatingsService {
       count: rows.length,
     };
   }
-
   async upsert(userId: string, movieSlug: string, score: number) {
     await this.ratings.upsert(
       { userId_movieSlug: { userId, movieSlug } },

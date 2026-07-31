@@ -1,46 +1,27 @@
 import { Module } from '@nestjs/common';
-import { RepositoriesModule } from '../database/repositories/repositories.module';
-import { AdminController } from './admin/admin.controller';
-import { AdminService } from './admin/admin.service';
+import { AdminModule } from './admin/admin.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
-import { CommentsController } from './comments/comments.controller';
-import { CommentsService } from './comments/comments.service';
-import { FavoritesController } from './favorites/favorites.controller';
-import { FavoritesService } from './favorites/favorites.service';
-import { ProfilesController } from './profiles/profiles.controller';
-import { ProfilesService } from './profiles/profiles.service';
-import { RatingsController } from './ratings/ratings.controller';
-import { RatingsService } from './ratings/ratings.service';
-import { WatchHistoryController } from './watch-history/watch-history.controller';
-import { WatchHistoryService } from './watch-history/watch-history.service';
-import { WatchPartyController } from './watch-party/watch-party.controller';
-import { WatchPartyGateway } from './watch-party/watch-party.gateway';
-import { WatchPartyService } from './watch-party/watch-party.service';
-import { WatchlistsController } from './watchlists/watchlists.controller';
-import { WatchlistsService } from './watchlists/watchlists.service';
+import { CommentsModule } from './comments/comments.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { ProfilesModule } from './profiles/profiles.module';
+import { RatingsModule } from './ratings/ratings.module';
+import { WatchHistoryModule } from './watch-history/watch-history.module';
+import { WatchPartyModule } from './watch-party/watch-party.module';
+import { WatchlistsModule } from './watchlists/watchlists.module';
 
 @Module({
-  imports: [RepositoriesModule, AuthModule],
-  controllers: [
-    CommentsController,
-    FavoritesController,
-    ProfilesController,
-    RatingsController,
-    WatchHistoryController,
-    WatchlistsController,
-    WatchPartyController,
-    AdminController,
-  ],
-  providers: [
-    CommentsService,
-    FavoritesService,
-    ProfilesService,
-    RatingsService,
-    WatchHistoryService,
-    WatchlistsService,
-    WatchPartyService,
-    WatchPartyGateway,
-    AdminService,
+  imports: [
+    AuthModule,
+    FavoritesModule,
+    CommentsModule,
+    ProfilesModule,
+    RatingsModule,
+    WatchHistoryModule,
+    WatchlistsModule,
+    WatchPartyModule,
+    AdminModule,
+    AnalyticsModule,
   ],
 })
 export class PlatformModule {}

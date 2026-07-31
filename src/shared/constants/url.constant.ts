@@ -25,4 +25,5 @@ export const GOOGLE_OAUTH_URLS = {
 } as const;
 
 export const GOOGLE_OAUTH_CALLBACK_PATH = '/api/auth/google/callback';
+
 export const FRONTEND_AUTH_CALLBACK_PATH = '/auth/callback';

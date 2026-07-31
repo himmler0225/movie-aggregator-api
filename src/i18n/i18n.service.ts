@@ -11,11 +11,9 @@ const LOCALES: Record<SupportedLocale, Record<string, unknown>> = { vi, en };
 @Injectable()
 export class I18nService {
   private readonly defaultLocale: SupportedLocale;
-
   constructor(appConfig: AppConfigService) {
     this.defaultLocale = appConfig.defaultLocale;
   }
-
   resolveLocale(acceptLanguage?: string): SupportedLocale {
     if (!acceptLanguage) return this.defaultLocale;
     const primary = acceptLanguage.split(',')[0]?.trim().toLowerCase() ?? '';
@@ -23,7 +21,6 @@ export class I18nService {
     if (primary.startsWith('vi')) return 'vi';
     return this.defaultLocale;
   }
-
   translate(
     key: string,
     options?: {
@@ -34,15 +31,12 @@ export class I18nService {
     const locale = options?.locale ?? this.defaultLocale;
     const value =
       this.lookup(LOCALES[locale], key) ?? this.lookup(LOCALES.en, key) ?? key;
-
     if (typeof value !== 'string') return key;
-
     return value.replace(I18N_INTERPOLATION_PATTERN, (_, name: string) => {
       const arg = options?.args?.[name];
       return arg === undefined ? `{{${name}}}` : String(arg);
     });
   }
-
   private lookup(tree: Record<string, unknown>, key: string): unknown {
     return key.split('.').reduce<unknown>((node, part) => {
       if (

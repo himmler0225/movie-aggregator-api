@@ -18,6 +18,7 @@ export interface SessionUser {
 export interface SessionResponse {
   access_token: string;
   expires_at: number;
+  refresh_token?: string;
   user: SessionUser;
 }
 

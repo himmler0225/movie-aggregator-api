@@ -1,4 +1,4 @@
--- Add an explicit per-episode completion flag and backfill existing history.
+
 ALTER TABLE public.watch_history
   ADD COLUMN IF NOT EXISTS completed boolean NOT NULL DEFAULT false;
 

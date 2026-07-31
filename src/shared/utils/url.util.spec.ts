@@ -9,7 +9,6 @@ describe('buildUrl', () => {
       }),
     ).toBe('https://vsmov.com/api/danh-sach?type=series&page=1');
   });
-
   it('keeps existing root-based source URLs unchanged', () => {
     expect(
       buildUrl('https://phimapi.com', '/v1/api/danh-sach/phim-bo', {

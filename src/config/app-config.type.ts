@@ -9,4 +9,5 @@ export interface AppConfig {
   supabaseServiceKey: string;
   googleClientId: string;
   googleClientSecret: string;
+  redisUrl: string;
 }

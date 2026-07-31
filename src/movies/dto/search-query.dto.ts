@@ -13,7 +13,6 @@ export class SearchQueryDto extends PaginationDto {
   @IsNotEmpty({ message: 'Missing required query parameter: keyword' })
   @IsString()
   keyword!: string;
-
   @ApiPropertyOptional({
     enum: SOURCE_KEYS,
     description: 'Pin upstream source. Omit to use automatic fallback.',

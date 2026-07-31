@@ -8,7 +8,6 @@ export class ProfilesRepository extends BaseRepository<Profile> {
   constructor(prisma: PrismaService) {
     super(prisma, prisma.profile);
   }
-
   findByIds(ids: string[]) {
     return this.findMany({ where: { id: { in: ids } } });
   }

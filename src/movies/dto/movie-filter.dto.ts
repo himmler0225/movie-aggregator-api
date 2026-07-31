@@ -20,7 +20,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsIn(SOURCE_KEYS)
   source?: SourceKey;
-
   @ApiPropertyOptional({
     example: 'hanh-dong',
     description: 'Secondary genre slug filter',
@@ -28,7 +27,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsString()
   category?: string;
-
   @ApiPropertyOptional({
     example: 'han-quoc',
     description: 'Secondary country slug filter',
@@ -36,7 +34,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsString()
   country?: string;
-
   @ApiPropertyOptional({
     example: '2024',
     description: 'Release year (4 digits)',
@@ -44,7 +41,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsString()
   year?: string;
-
   @ApiPropertyOptional({
     enum: SORT_LANGS,
     description: 'Filter by subtitle / dubbing type',
@@ -53,7 +49,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsIn(SORT_LANGS)
   sort_lang?: (typeof SORT_LANGS)[number];
-
   @ApiPropertyOptional({
     enum: SORT_FIELDS,
     description: 'Sort field',
@@ -62,7 +57,6 @@ export class MovieFilterDto extends PaginationDto {
   @IsOptional()
   @IsIn(SORT_FIELDS)
   sort_field?: (typeof SORT_FIELDS)[number];
-
   @ApiPropertyOptional({
     enum: SORT_TYPES,
     description: 'Sort direction',
@@ -81,7 +75,6 @@ export class NewMoviesQueryDto extends PaginationDto {
   @IsOptional()
   @IsIn(SOURCE_KEYS)
   source?: SourceKey;
-
   @ApiPropertyOptional({
     default: PAGINATION.defaultPage,
     minimum: PAGINATION.minPage,
