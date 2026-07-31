@@ -8,19 +8,11 @@ import type {
   MovieDetailData,
   MovieListApiResponse,
   MovieListItem,
-  MovieApiResponse,
 } from '../shared/types/movie.types';
-import type { PaginationMeta } from '../shared/types/pagination.type';
 import { MOVIE_SOURCES, type SourceKey } from './sources/sources.registry';
+import { buildSourceResponse } from './sources/source-response.util';
 
 type AnyObj = Record<string, unknown>;
-
-const buildResponse = <T>(
-  source: SourceKey,
-  data: T,
-  pagination?: PaginationMeta,
-): MovieApiResponse<T> =>
-  pagination !== undefined ? { source, data, pagination } : { source, data };
 
 const toAbsoluteImg = (raw: string | undefined, source: SourceKey): string => {
   if (!raw) return '';
@@ -57,7 +49,7 @@ export const normalizeNewMoviesResponse = (
   const items = ((raw.items as AnyObj[]) ?? []).map((it) =>
     normalizeMovie(it, source),
   );
-  return buildResponse(
+  return buildSourceResponse(
     source,
     items,
     raw.pagination as MovieListApiResponse['pagination'],
@@ -74,8 +66,7 @@ export const normalizeListResponse = (
   );
   const pagination = (data.params as AnyObj | undefined)?.pagination as
     MovieListApiResponse['pagination'] | undefined;
-
-  return buildResponse(source, items, pagination);
+  return buildSourceResponse(source, items, pagination);
 };
 
 export const normalizeDetailResponse = (
@@ -86,14 +77,12 @@ export const normalizeDetailResponse = (
   const statusFalse = raw.status === false || raw.status === 'false';
   const noMovie =
     !movie || typeof movie !== 'object' || !movie.name || !movie.slug;
-
   if (statusFalse || noMovie) {
     throw new AppError(
       AppErrorCode.MOVIE_NOT_FOUND,
       (raw.msg as string) || undefined,
     );
   }
-
   const normalizedMovie: MovieDetail = {
     ...normalizeMovie(movie, source),
     content: movie.content as string | undefined,
@@ -107,15 +96,17 @@ export const normalizeDetailResponse = (
     showtimes: movie.showtimes as string | undefined,
     view: movie.view as number | undefined,
     notify: movie.notify as string | undefined,
-    modified: movie.modified as { time: string } | undefined,
+    modified: movie.modified as
+      | {
+          time: string;
+        }
+      | undefined,
   };
-
   const detailData: MovieDetailData = {
     movie: normalizedMovie,
     episodes: (raw.episodes as MovieDetailData['episodes']) ?? [],
   };
-
-  return buildResponse(source, detailData);
+  return buildSourceResponse(source, detailData);
 };
 
 const extractMetadataItems = (raw: unknown): MetadataItem[] => {
@@ -125,7 +116,11 @@ const extractMetadataItems = (raw: unknown): MetadataItem[] => {
     if (Array.isArray(obj.items)) return obj.items as MetadataItem[];
     const data = obj.data;
     if (Array.isArray(data)) return data as MetadataItem[];
-    if (data && typeof data === 'object' && Array.isArray((data as AnyObj).items)) {
+    if (
+      data &&
+      typeof data === 'object' &&
+      Array.isArray((data as AnyObj).items)
+    ) {
       return (data as AnyObj).items as MetadataItem[];
     }
   }
@@ -135,4 +130,5 @@ const extractMetadataItems = (raw: unknown): MetadataItem[] => {
 export const normalizeMetadataResponse = (
   raw: unknown,
   source: SourceKey,
-): MetadataListApiResponse => buildResponse(source, extractMetadataItems(raw));
+): MetadataListApiResponse =>
+  buildSourceResponse(source, extractMetadataItems(raw));

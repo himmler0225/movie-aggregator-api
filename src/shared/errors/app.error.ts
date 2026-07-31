@@ -1,4 +1,4 @@
-import { HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 
 export enum AppErrorCode {
   BAD_REQUEST = 'BAD_REQUEST',
@@ -28,27 +28,35 @@ const APP_ERROR_STATUS: Record<AppErrorCode, HttpStatus> = {
   [AppErrorCode.NOT_FOUND]: HttpStatus.NOT_FOUND,
 };
 
-export class AppError extends Error {
+/**
+ * A typed HttpException: `.code` lets `movies`/`upstream` code branch on
+ * failure kind (e.g. retry/fallback decisions), while the exception itself
+ * flows through the same global HttpExceptionFilter path as every other
+ * NestJS exception in the app — the response body is always the translated
+ * `errors.<code>` i18n key, matching platform-module error responses.
+ */
+export class AppError extends HttpException {
   readonly code: AppErrorCode;
-  readonly statusCode: HttpStatus;
-
   constructor(code: AppErrorCode, message?: string) {
-    super(message ?? code);
+    super(`errors.${code}`, APP_ERROR_STATUS[code]);
     this.name = 'AppError';
     this.code = code;
-    this.statusCode = APP_ERROR_STATUS[code];
+    if (message) {
+      this.message = message;
+    }
   }
-
-  toResponse(): { error: string } {
-    return { error: this.code };
-  }
-
-  static fromUpstreamStatus(status: number, fallbackMessage?: string): AppError {
+  static fromUpstreamStatus(
+    status: number,
+    fallbackMessage?: string,
+  ): AppError {
     if (status === 404) {
       return new AppError(AppErrorCode.MOVIE_NOT_FOUND);
     }
     if (status >= 400 && status < 500) {
-      return new AppError(AppErrorCode.BAD_REQUEST, fallbackMessage ?? `HTTP ${status}`);
+      return new AppError(
+        AppErrorCode.BAD_REQUEST,
+        fallbackMessage ?? `HTTP ${status}`,
+      );
     }
     return new AppError(AppErrorCode.UPSTREAM_ERROR, fallbackMessage);
   }

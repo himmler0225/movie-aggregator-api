@@ -4,5 +4,4 @@ export * from './comments.types';
 export * from './favorites.types';
 export * from './profiles.types';
 export * from './watch-history.types';
-export * from './watchlists.types';
 export * from './admin.types';

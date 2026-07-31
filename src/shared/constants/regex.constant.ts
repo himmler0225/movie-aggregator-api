@@ -1,6 +1,8 @@
 export const TRAILING_SLASH_PATTERN = /\/+$/;
+
 export const LEADING_SLASH_PATTERN = /^\/+/;
+
 export const I18N_INTERPOLATION_PATTERN = /\{\{(\w+)\}\}/g;
-export const UPPERCASE_LETTER_PATTERN = /[A-Z]/g;
+
 export const UPSTREAM_NETWORK_ERROR_PATTERN =
   /Timeout|ECONNABORTED|ERR_NETWORK|ENOTFOUND|ECONNRESET|ECONNREFUSED/;

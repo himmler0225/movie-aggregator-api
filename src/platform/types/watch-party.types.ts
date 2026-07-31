@@ -1,6 +1,7 @@
 export interface CreateRoomInput {
   code: string;
   hostId: string;
+  hostRole: string;
   movieSlug: string;
   movieName: string;
   thumbUrl?: string | null;
@@ -9,27 +10,6 @@ export interface CreateRoomInput {
   expiresHours?: number;
   isPrivate?: boolean;
   pin?: string | null;
-}
-
-export interface JoinRoomInput {
-  username: string;
-  avatar_url?: string | null;
-  host_id: string;
-  joined_message: string;
-}
-
-export interface SendRoomMessageInput {
-  username: string;
-  content: string;
-  type?: string;
-  avatar_url?: string | null;
-}
-
-export interface UpdatePlaybackInput {
-  playback_time: number;
-  is_playing: boolean;
-  episode_name: string;
-  server_index: number;
 }
 
 export interface UpdatePlaybackState {
@@ -75,7 +55,7 @@ export interface WatchRoomView {
   playback_time: number;
   is_playing: boolean;
   is_private: boolean;
-  pin: string | null;
+  has_pin: boolean;
   created_at: string;
   expires_at: string;
 }

@@ -20,10 +20,7 @@ import {
   buildUrl,
 } from '../shared/utils';
 import { UpstreamClientService } from '../upstream/upstream-client.service';
-import {
-  buildUpstreamListParams,
-  resolvePagination,
-} from './filter.util';
+import { buildUpstreamListParams, resolvePagination } from './filter.util';
 import {
   normalizeDetailResponse,
   normalizeListResponse,
@@ -50,9 +47,7 @@ import type {
 @Injectable()
 export class MoviesService {
   private readonly logger = AppLogger.create(MoviesService.name);
-
   constructor(private readonly upstream: UpstreamClientService) {}
-
   getNewMovies(
     page = 1,
     pinnedSource?: SourceKey,
@@ -61,7 +56,6 @@ export class MoviesService {
       this.fetchNewMovies(source, page),
     );
   }
-
   getMoviesByType(
     type: string,
     filters: MovieFilterParams = {},
@@ -71,7 +65,6 @@ export class MoviesService {
       this.fetchMoviesByType(source, type, filters),
     );
   }
-
   getMovieDetail(
     slug: string,
     pinnedSource?: SourceKey,
@@ -80,7 +73,6 @@ export class MoviesService {
       this.fetchMovieDetail(source, slug),
     );
   }
-
   searchMovies(
     params: SearchParams,
     pinnedSource?: SourceKey,
@@ -89,7 +81,6 @@ export class MoviesService {
       this.fetchSearchMovies(source, params),
     );
   }
-
   getByGenre(
     slug: string,
     filters: MovieFilterParams = {},
@@ -99,7 +90,6 @@ export class MoviesService {
       this.fetchByGenre(source, slug, filters),
     );
   }
-
   getByCountry(
     slug: string,
     filters: MovieFilterParams = {},
@@ -109,7 +99,6 @@ export class MoviesService {
       this.fetchByCountry(source, slug, filters),
     );
   }
-
   getByYear(
     year: string,
     filters: MovieFilterParams = {},
@@ -119,40 +108,23 @@ export class MoviesService {
       this.fetchByYear(source, year, filters),
     );
   }
-
   getAllGenres(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
     return this.withFallback('getAllGenres', pinnedSource, (source) =>
       this.fetchAllGenres(source),
     );
   }
-
   getAllCountries(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
     return this.withFallback('getAllCountries', pinnedSource, (source) =>
       this.fetchAllCountries(source),
     );
   }
-
   getAllYears(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
     return this.fetchAllYears(pinnedSource ?? 'vsmov');
   }
-
   getImageWebp(imageUrl: string) {
     assertPhimimgUrl(imageUrl);
-    // TEMP: KKPhim's /image.php webp converter is 404ing for nearly all
-    // images upstream (verified against phimapi.com directly, not our bug).
-    // Bypass it and serve the original phimimg.com image until it recovers.
-    // Revert to the commented-out block below once KKPhim's proxy is back.
     return this.upstream.getBinary(imageUrl, 'image');
-
-    // const source = getImageProxySource();
-    // const { baseUrl, routes } = MOVIE_SOURCES[source];
-    // if (!routes.imageWebp) {
-    //   throw new AppError(AppErrorCode.UPSTREAM_ERROR);
-    // }
-    // const url = buildUrl(baseUrl, routes.imageWebp, { url: imageUrl });
-    // return this.upstream.getBinary(url, 'image');
   }
-
   resolvePinnedSource(value?: string): SourceKey | undefined {
     if (!value) return undefined;
     if (!isSourceKey(value)) {
@@ -160,8 +132,11 @@ export class MoviesService {
     }
     return value;
   }
-
-  private async withFallback<T extends { source: string }>(
+  private async withFallback<
+    T extends {
+      source: string;
+    },
+  >(
     context: string,
     pinnedSource: SourceKey | undefined,
     call: (source: SourceKey) => Promise<T>,
@@ -169,9 +144,7 @@ export class MoviesService {
     if (pinnedSource) {
       return call(pinnedSource);
     }
-
     const [primary, ...fallbacks] = SOURCE_FALLBACK_ORDER;
-
     try {
       return await call(primary);
     } catch (primaryError) {
@@ -181,7 +154,6 @@ export class MoviesService {
       ) {
         throw primaryError;
       }
-
       for (const fallback of fallbacks) {
         this.logger.warn(
           `${context} failed @${primary}, fallback @${fallback}`,
@@ -189,15 +161,13 @@ export class MoviesService {
         try {
           return await call(fallback);
         } catch {
-          // try next source
+          // already logged above — move on to the next fallback source
         }
       }
-
       if (primaryError instanceof AppError) throw primaryError;
       throw new AppError(AppErrorCode.UPSTREAM_ERROR);
     }
   }
-
   private isFallbackable(error: AppError): boolean {
     return (
       error.code === AppErrorCode.UPSTREAM_ERROR ||
@@ -205,7 +175,6 @@ export class MoviesService {
       error.code === AppErrorCode.MOVIE_NOT_FOUND
     );
   }
-
   private async fetchNewMovies(
     source: SourceKey,
     page = 1,
@@ -220,7 +189,6 @@ export class MoviesService {
       ? normalizeVsmovListResponse(raw as unknown as VsmovListResponse)
       : normalizeNewMoviesResponse(raw, source);
   }
-
   private async fetchMoviesByType(
     source: SourceKey,
     type: string,
@@ -252,7 +220,6 @@ export class MoviesService {
     );
     return this.normalizeList(raw, source);
   }
-
   private async fetchMovieDetail(
     source: SourceKey,
     slug: string,
@@ -267,7 +234,6 @@ export class MoviesService {
       ? normalizeVsmovDetailResponse(raw as unknown as VsmovDetailResponse)
       : normalizeDetailResponse(raw, source);
   }
-
   private async fetchSearchMovies(
     source: SourceKey,
     params: SearchParams,
@@ -286,7 +252,6 @@ export class MoviesService {
     );
     return this.normalizeList(raw, source);
   }
-
   private async fetchByGenre(
     source: SourceKey,
     slug: string,
@@ -300,7 +265,6 @@ export class MoviesService {
       'list',
     );
   }
-
   private async fetchByCountry(
     source: SourceKey,
     slug: string,
@@ -314,7 +278,6 @@ export class MoviesService {
       'list',
     );
   }
-
   private async fetchByYear(
     source: SourceKey,
     year: string,
@@ -329,7 +292,6 @@ export class MoviesService {
       'list',
     );
   }
-
   private async fetchAllGenres(
     source: SourceKey,
   ): Promise<MetadataListApiResponse> {
@@ -338,7 +300,6 @@ export class MoviesService {
     const raw = await this.upstream.getJson<unknown>(url, 'meta');
     return this.normalizeMetadata(raw, source);
   }
-
   private async fetchAllCountries(
     source: SourceKey,
   ): Promise<MetadataListApiResponse> {
@@ -347,7 +308,6 @@ export class MoviesService {
     const raw = await this.upstream.getJson<unknown>(url, 'meta');
     return this.normalizeMetadata(raw, source);
   }
-
   private async fetchAllYears(
     source: SourceKey,
   ): Promise<MetadataListApiResponse> {
@@ -362,7 +322,6 @@ export class MoviesService {
     const raw = await this.upstream.getJson<VsmovMetadataResponse>(url, 'meta');
     return normalizeVsmovMetadataResponse(raw);
   }
-
   private async fetchFilteredList(
     source: SourceKey,
     path: string,
@@ -378,7 +337,6 @@ export class MoviesService {
     );
     return this.normalizeList(raw, source);
   }
-
   private buildListParams(
     source: SourceKey,
     filters: MovieFilterParams,
@@ -388,7 +346,6 @@ export class MoviesService {
         MOVIE_SOURCES[source].capabilities.listByTypeFilters,
     });
   }
-
   private normalizeList(
     raw: Record<string, unknown>,
     source: SourceKey,
@@ -397,7 +354,6 @@ export class MoviesService {
       ? normalizeVsmovListResponse(raw as unknown as VsmovListResponse)
       : normalizeListResponse(raw, source);
   }
-
   private normalizeMetadata(
     raw: unknown,
     source: SourceKey,
