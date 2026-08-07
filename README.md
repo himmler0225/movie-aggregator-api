@@ -1,6 +1,6 @@
 # Movie Aggregator API
 
-NestJS gateway that aggregates movie data from multiple upstream sources behind a **single unified API**.
+NestJS backend for **cine-flow**: aggregates movie data from multiple upstream sources behind a **single unified API**, and owns the platform layer — auth, profiles, favorites/watchlists, ratings/comments, watch history, and watch-party — backed by Supabase (auth) + Prisma/Postgres (app data).
 
 | Upstream | Base URL |
 |----------|----------|
@@ -420,6 +420,18 @@ Image URLs in `poster_url` / `thumb_url` are already normalized to absolute URLs
 
 ---
 
+## Platform module & design patterns
+
+Beyond movie aggregation, `src/platform/` is the app's other half — one NestJS module per domain (`auth`, `profiles`, `favorites`, `watchlists`, `ratings`, `comments`, `watch-history`, `watch-party`, `admin`, `analytics`), each with its own controller/service/dto. Patterns used consistently across both halves:
+
+- **Repository pattern** — `database/repositories/*.repository.ts` all extend `BaseRepository<T>` (`database/base/base.repository.ts`), which wraps a Prisma delegate with generic `findById`/`findMany`/`create`/`update`/`paginate`/etc. Services depend on repositories, never on `PrismaService` directly.
+- **Guard-based authorization, layered** — `JwtAuthGuard` is applied globally (via `APP_GUARD`); routes opt out with `@Public()`. Admin-only routes add `PermissionsGuard` + `@RequirePermission('scope:action')`, checked against a `role_permissions` table (`auth/permissions.service.ts`) — not hardcoded role checks. Hot endpoints add `RateLimitGuard` + `@RateLimit(...)`.
+- **Two identity sources, one profile** — Supabase Auth (GoTrue) owns credentials/sessions; a `profiles` row (Prisma) holds app-specific fields (`role`, `status`, display name). `AuthService.ensureProfile()` keeps them in sync on every sign-in/sign-up/OAuth callback.
+- **Centralized, translated errors** — services throw Nest exceptions with a message *key* (e.g. `throw new UnauthorizedException('auth.accountPending')`), never a literal user-facing string. `shared/filters/http-exception.filter.ts` catches everything, resolves the key through `I18nService` against the request's `Accept-Language`, and returns `{ error: "<translated text>" }`. Catalogs: `i18n/locales/{en,vi}.json`.
+- **DTO + `class-validator`** at the controller boundary for every mutating endpoint; mapper functions (`platform/mappers/*.ts`) shape Prisma rows into the API's response DTOs so internal column names never leak to clients.
+
+---
+
 ## Project structure
 
 ```
@@ -429,10 +441,23 @@ src/
 │   ├── movies.service.ts       # upstream calls + fallback
 │   ├── movie.normalizer.ts     # response normalization
 │   └── sources/                # per-source config + registry
-├── upstream/                   # HTTP client with retry
-├── shared/                     # dto, errors, types, utils, logger
-├── health/                     # /api/health
-└── config/swagger.config.ts
+├── platform/                   # one module per domain
+│   ├── auth/                   # Supabase GoTrue + Google OAuth + JWT issuing/guards
+│   ├── admin/                  # dashboard, users, analytics, comments, rooms
+│   ├── profiles/ favorites/ watchlists/ ratings/ comments/
+│   ├── watch-history/ watch-party/ analytics/
+│   ├── mappers/                 # Prisma row → API DTO
+│   └── types/                   # shared platform types
+├── database/
+│   ├── base/base.repository.ts # generic CRUD + pagination over a Prisma delegate
+│   ├── repositories/            # one repository per entity, extends BaseRepository
+│   ├── prisma.service.ts        # Prisma client
+│   └── supabase.service.ts      # Supabase Admin/Auth client
+├── i18n/                        # I18nService + locales/{en,vi}.json
+├── upstream/                    # HTTP client with retry
+├── shared/                      # dto, errors, filters (HttpExceptionFilter), types, utils, logger
+├── health/                      # /api/health
+└── config/                      # AppConfigService, swagger.config.ts
 ```
 
 ---
