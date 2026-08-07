@@ -1,12 +1,13 @@
 import type { Profile } from '@prisma/client';
-import { ROLE } from '../../shared/constants';
+import { PROFILE_STATUS, ROLE } from '../../shared/constants';
 import type { ProfileView } from '../types';
 
 export function mapProfile(
   p: Pick<
     Profile,
     'id' | 'email' | 'fullName' | 'avatarUrl' | 'role' | 'createdAt'
-  >,
+  > &
+    Partial<Pick<Profile, 'status'>>,
 ): ProfileView {
   return {
     id: p.id,
@@ -15,6 +16,7 @@ export function mapProfile(
     plan:
       p.role === ROLE.PREMIUM || p.role === ROLE.ADMIN ? ROLE.PREMIUM : 'free',
     role: p.role,
+    status: p.status ?? PROFILE_STATUS.APPROVED,
     created_at: p.createdAt?.toISOString(),
   };
 }

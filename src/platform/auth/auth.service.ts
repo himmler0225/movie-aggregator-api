@@ -14,6 +14,7 @@ import { RefreshTokensRepository } from '../../database/repositories/refresh-tok
 import { SupabaseService } from '../../database/supabase.service';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
+  PROFILE_STATUS,
   REFRESH_TOKEN_TTL_SECONDS,
   ROLE,
 } from '../../shared/constants';
@@ -90,6 +91,7 @@ export class AuthService {
     email: string,
     fullName?: string | null,
     avatarUrl?: string | null,
+    status: string = PROFILE_STATUS.APPROVED,
   ): Promise<Profile> {
     const existing = await this.profiles.findById(userId);
     if (existing) {
@@ -116,6 +118,7 @@ export class AuthService {
         fullName: fullName ?? email.split('@')[0] ?? 'User',
         avatarUrl: avatarUrl ?? null,
         role: ROLE.USER,
+        status,
       });
     } catch {
       const again = await this.profiles.findById(userId);
@@ -142,7 +145,7 @@ export class AuthService {
     email: string,
     password: string,
     username: string,
-  ): Promise<SessionResponse> {
+  ): Promise<{ pending: true }> {
     const existing = await this.supabase.findUserByEmail(email);
     if (existing) throw new ConflictException('auth.emailAlreadyRegistered');
     const { data, error } = await this.supabase.createUser({
@@ -156,12 +159,22 @@ export class AuthService {
         error?.message ?? 'auth.registrationFailed',
       );
     }
-    const profile = await this.ensureProfile(
+    await this.ensureProfile(
       data.user.id,
       email,
       username.trim(),
+      null,
+      PROFILE_STATUS.PENDING,
     );
-    return this.sessionFromSupabaseUser(data.user, profile);
+    // Supabase's `on_auth_user_created` DB trigger inserts a profiles row
+    // (defaulting to status=approved) as soon as the auth user is created,
+    // before this request runs — so ensureProfile() above sees an existing
+    // row and won't have applied the pending status. Force it explicitly.
+    await this.profiles.update(
+      { id: data.user.id },
+      { status: PROFILE_STATUS.PENDING },
+    );
+    return { pending: true };
   }
 
   async login(email: string, password: string): Promise<SessionResponse> {
@@ -173,6 +186,12 @@ export class AuthService {
       throw new UnauthorizedException('auth.invalidCredentials');
     }
     const profile = await this.profiles.findById(data.user.id);
+    if (profile?.status === PROFILE_STATUS.PENDING) {
+      throw new UnauthorizedException('auth.accountPending');
+    }
+    if (profile?.status === PROFILE_STATUS.REJECTED) {
+      throw new UnauthorizedException('auth.accountRejected');
+    }
     return this.sessionFromSupabaseUser(data.user, profile);
   }
 
@@ -183,6 +202,9 @@ export class AuthService {
     const { data, error } = await this.supabase.getUserById(userId);
     if (error || !data.user?.email) return null;
     const profile = await this.profiles.findById(userId);
+    if (profile?.status && profile.status !== PROFILE_STATUS.APPROVED) {
+      return null;
+    }
     return this.sessionFromSupabaseUser(data.user, profile, {
       issueRefresh: opts?.issueRefresh === true,
     });
@@ -204,6 +226,9 @@ export class AuthService {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
     const profile = await this.profiles.findById(stored.userId);
+    if (profile?.status && profile.status !== PROFILE_STATUS.APPROVED) {
+      throw new UnauthorizedException('auth.accountPending');
+    }
     return this.sessionFromSupabaseUser(data.user, profile, {
       issueRefresh: true,
     });

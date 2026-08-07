@@ -26,7 +26,9 @@
     "passwordTooShort": "Password too short",
     "googleUserCreateFailed": "Failed to create Google user",
     "adminRequired": "Admin access required",
-    "emailAlreadyRegistered": "Email already registered"
+    "emailAlreadyRegistered": "Email already registered",
+    "accountPending": "Your account is awaiting admin approval",
+    "accountRejected": "Your registration request was rejected"
   },
   "platform": {
     "roomNotFound": "Room not found",

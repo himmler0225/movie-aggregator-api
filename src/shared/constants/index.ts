@@ -8,5 +8,6 @@ export * from './auth.constant';
 export * from './regex.constant';
 export * from './url.constant';
 export * from './role.constant';
+export * from './profile-status.constant';
 export * from './rate-limit.constant';
 export * from './query-limits.constant';

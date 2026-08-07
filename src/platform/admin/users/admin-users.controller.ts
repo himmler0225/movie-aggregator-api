@@ -11,7 +11,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermission } from '../../auth/auth.decorators';
 import { PermissionsGuard } from '../../auth/permissions.guard';
 import type { ListUsersOptions } from '../../types';
-import { UpdateUserRoleDto } from '../dto/admin.dto';
+import { UpdateUserRoleDto, UpdateUserStatusDto } from '../dto/admin.dto';
 import { AdminUsersService } from './admin-users.service';
 
 @ApiTags('Admin')
@@ -51,6 +51,20 @@ export class AdminUsersController {
     body: UpdateUserRoleDto,
   ) {
     return this.adminUsers.updateUserRole(userId, body.role);
+  }
+  @Get('pending')
+  pendingUsers() {
+    return this.adminUsers.pendingUsers();
+  }
+  @Patch(':userId/status')
+  @RequirePermission('users:write')
+  updateStatus(
+    @Param('userId')
+    userId: string,
+    @Body()
+    body: UpdateUserStatusDto,
+  ) {
+    return this.adminUsers.updateUserStatus(userId, body.status);
   }
   @Get('recent')
   recentUsers() {

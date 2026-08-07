@@ -14,6 +14,7 @@ model Profile {
   fullName  String?  @map("full_name")
   avatarUrl String?  @map("avatar_url")
   role      String   @default("user")
+  status    String   @default("approved")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

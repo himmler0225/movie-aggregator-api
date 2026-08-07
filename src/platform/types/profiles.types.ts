@@ -11,13 +11,14 @@ export interface ProfileView {
   avatar_url: string | null;
   plan: string;
   role: string;
+  status: string;
   created_at?: string;
 }
 
 export interface ListUsersOptions {
   query: string;
   sort: 'new' | 'name';
-  filter: 'all' | 'free' | Exclude<Role, 'user'>;
+  filter: 'all' | 'free' | 'pending' | Exclude<Role, 'user'>;
   page: number;
   pageSize: number;
 }

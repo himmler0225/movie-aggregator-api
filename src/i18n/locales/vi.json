@@ -26,7 +26,9 @@
     "passwordTooShort": "Mật khẩu quá ngắn",
     "googleUserCreateFailed": "Không thể tạo tài khoản Google",
     "adminRequired": "Yêu cầu quyền quản trị viên",
-    "emailAlreadyRegistered": "Email đã được đăng ký"
+    "emailAlreadyRegistered": "Email đã được đăng ký",
+    "accountPending": "Tài khoản của bạn đang chờ quản trị viên duyệt",
+    "accountRejected": "Yêu cầu đăng ký của bạn đã bị từ chối"
   },
   "platform": {
     "roomNotFound": "Không tìm thấy phòng",

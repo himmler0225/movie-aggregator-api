@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { FavoritesRepository } from '../../../database/repositories/favorites.repository';
 import { ProfilesRepository } from '../../../database/repositories/profiles.repository';
 import { WatchHistoryRepository } from '../../../database/repositories/watch-history.repository';
-import { QUERY_LIMITS, ROLE, type Role } from '../../../shared/constants';
+import {
+  PROFILE_STATUS,
+  QUERY_LIMITS,
+  ROLE,
+  type Role,
+} from '../../../shared/constants';
 import { mapFavorite, mapProfile, mapWatchHistory } from '../../mappers';
 import type { ListUsersOptions } from '../../types';
 
@@ -28,8 +33,12 @@ export class AdminUsersService {
         { email: { contains: opts.query, mode: 'insensitive' } },
       ];
     }
-    const role = ROLE_BY_FILTER[opts.filter];
-    if (role) where.role = role;
+    if (opts.filter === 'pending') {
+      where.status = PROFILE_STATUS.PENDING;
+    } else {
+      const role = ROLE_BY_FILTER[opts.filter];
+      if (role) where.role = role;
+    }
     const orderBy =
       opts.sort === 'new'
         ? { createdAt: 'desc' as const }
@@ -47,6 +56,17 @@ export class AdminUsersService {
   }
   async updateUserRole(userId: string, role: string) {
     await this.profiles.update({ id: userId }, { role });
+    return { ok: true };
+  }
+  async pendingUsers() {
+    const rows = await this.profiles.findMany({
+      where: { status: PROFILE_STATUS.PENDING },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(mapProfile);
+  }
+  async updateUserStatus(userId: string, status: 'approved' | 'rejected') {
+    await this.profiles.update({ id: userId }, { status });
     return { ok: true };
   }
   async recentUsers(limit: number = QUERY_LIMITS.adminRecentUsers) {
