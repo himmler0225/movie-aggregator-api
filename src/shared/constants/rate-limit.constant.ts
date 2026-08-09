@@ -26,4 +26,9 @@ export const RATE_LIMIT = {
     limit: 30,
     windowMs: 60000,
   },
+  movies: {
+    keyPrefix: 'movies',
+    limit: 60,
+    windowMs: 60000,
+  },
 } as const;
