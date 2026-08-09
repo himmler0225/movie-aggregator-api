@@ -5,6 +5,7 @@ import {
   Param,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
@@ -20,6 +21,8 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Public } from '../platform/auth/auth.decorators';
+import { RateLimitGuard, RateLimit } from '../platform/common/rate-limit.guard';
+import { RATE_LIMIT } from '../shared/constants';
 import { ErrorResponseDto } from '../shared/dto/error-response.dto';
 import {
   MovieFilterDto,
@@ -44,6 +47,8 @@ const UNIFIED_RESPONSE_DESC =
 @ApiTags('Movies')
 @Controller(MOVIES_API_PREFIX)
 @Public()
+@UseGuards(RateLimitGuard)
+@RateLimit(RATE_LIMIT.movies)
 export class MoviesController {
   constructor(private readonly movies: MoviesService) {}
   @Get('new')
