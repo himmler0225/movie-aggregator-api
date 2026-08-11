@@ -89,8 +89,24 @@ export interface BroadcastWsPayload {
   payload: Record<string, unknown>;
 }
 
+export type PlaybackEventType = 'PLAY' | 'PAUSE' | 'SEEK';
+
+export interface PlaybackEventWsPayload {
+  roomCode: string;
+  type: PlaybackEventType;
+  time: number;
+}
+
+export interface PlaybackStateMsg {
+  type: PlaybackEventType;
+  time: number;
+  seq: number;
+  updatedAt: number;
+}
+
 export interface GatewaySocketData {
   userId?: string;
   roomCode?: string;
   presence?: PresencePayload;
+  isHost?: boolean;
 }

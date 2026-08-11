@@ -19,11 +19,14 @@ import {
 } from '../../config';
 import { RedisService } from '../../infra/redis';
 import { AppLogger } from '../../shared/logger';
+import { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
 import type {
   BroadcastWsPayload,
   GatewaySocketData,
   JoinWsPayload,
   JwtPayload,
+  PlaybackEventWsPayload,
+  PlaybackStateMsg,
   PresencePayload,
   RoomMessageView,
 } from '../types';
@@ -37,6 +40,10 @@ const gatewayCors = (() => {
 })();
 
 const presenceKey = (roomCode: string) => `watchparty:presence:${roomCode}`;
+const playbackKey = (roomCode: string) => `watchparty:playback:${roomCode}`;
+const playbackSeqKey = (roomCode: string) =>
+  `watchparty:playback:seq:${roomCode}`;
+const SEEK_DEBOUNCE_MS = 80;
 
 @WebSocketGateway({
   namespace: '/watch-party',
@@ -52,10 +59,14 @@ export class WatchPartyGateway
     string,
     Map<string, PresencePayload>
   >();
+  private readonly playbackByRoom = new Map<string, PlaybackStateMsg>();
+  private readonly seqByRoom = new Map<string, number>();
+  private readonly seekTimers = new Map<string, NodeJS.Timeout>();
   constructor(
     private readonly jwt: JwtService,
     private readonly appConfig: AppConfigService,
     private readonly redis: RedisService,
+    private readonly rooms: WatchRoomsRepository,
   ) {}
   afterInit(server: Namespace) {
     const pubClient = this.redis.getClient();
@@ -109,9 +120,22 @@ export class WatchPartyGateway
     void client.join(roomCode);
     data.roomCode = roomCode;
     data.presence = body.presence;
+    const room = await this.rooms.findByCode(roomCode);
+    data.isHost = !!room && room.hostId === data.userId;
     await this.setPresence(roomCode, client.id, body.presence);
     client.to(roomCode).emit('presence:join', body.presence);
     await this.emitPresenceSync(roomCode);
+    const playbackState =
+      (await this.getPlaybackState(roomCode)) ??
+      (room
+        ? {
+            type: room.isPlaying ? ('PLAY' as const) : ('PAUSE' as const),
+            time: room.playbackTime,
+            seq: 0,
+            updatedAt: Date.now(),
+          }
+        : null);
+    if (playbackState) client.emit('playback:sync', playbackState);
     return { ok: true };
   }
   @SubscribeMessage('broadcast')
@@ -128,6 +152,52 @@ export class WatchPartyGateway
       payload: body.payload ?? {},
     });
     return { ok: true };
+  }
+  @SubscribeMessage('playback:event')
+  async handlePlaybackEvent(
+    @ConnectedSocket()
+    client: Socket,
+    @MessageBody()
+    body: PlaybackEventWsPayload,
+  ) {
+    const data = client.data as GatewaySocketData;
+    const roomCode = body.roomCode?.toUpperCase();
+    if (!roomCode || !body.type || !data.isHost) return { ok: false };
+    const time = Number(body.time) || 0;
+    if (body.type === 'SEEK') {
+      const existing = this.seekTimers.get(roomCode);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        this.seekTimers.delete(roomCode);
+        void this.commitPlaybackEvent(roomCode, 'SEEK', time);
+      }, SEEK_DEBOUNCE_MS);
+      this.seekTimers.set(roomCode, timer);
+      return { ok: true };
+    }
+    const existing = this.seekTimers.get(roomCode);
+    if (existing) {
+      clearTimeout(existing);
+      this.seekTimers.delete(roomCode);
+    }
+    await this.commitPlaybackEvent(roomCode, body.type, time);
+    return { ok: true };
+  }
+  private async commitPlaybackEvent(
+    roomCode: string,
+    type: PlaybackStateMsg['type'],
+    time: number,
+  ) {
+    const seq = await this.nextSeq(roomCode);
+    const state: PlaybackStateMsg = { type, time, seq, updatedAt: Date.now() };
+    await this.setPlaybackState(roomCode, state);
+    this.server?.to(roomCode).emit('playback:event', state);
+    const room = await this.rooms.findByCode(roomCode);
+    if (room) {
+      await this.rooms.update(
+        { id: room.id },
+        { playbackTime: time, isPlaying: type !== 'PAUSE' },
+      );
+    }
   }
   emitMessageCreated(roomCode: string, message: RoomMessageView) {
     this.server?.to(roomCode.toUpperCase()).emit('message:created', message);
@@ -182,5 +252,32 @@ export class WatchPartyGateway
   private async emitPresenceSync(roomCode: string) {
     const members = await this.listPresence(roomCode);
     this.server?.to(roomCode).emit('presence:sync', members);
+  }
+  private async getPlaybackState(
+    roomCode: string,
+  ): Promise<PlaybackStateMsg | null> {
+    const client = this.redis.getClient();
+    if (client) {
+      const raw = await client.get(playbackKey(roomCode));
+      return raw ? (JSON.parse(raw) as PlaybackStateMsg) : null;
+    }
+    return this.playbackByRoom.get(roomCode) ?? null;
+  }
+  private async setPlaybackState(roomCode: string, state: PlaybackStateMsg) {
+    const client = this.redis.getClient();
+    if (client) {
+      await client.set(playbackKey(roomCode), JSON.stringify(state));
+      return;
+    }
+    this.playbackByRoom.set(roomCode, state);
+  }
+  private async nextSeq(roomCode: string): Promise<number> {
+    const client = this.redis.getClient();
+    if (client) {
+      return client.incr(playbackSeqKey(roomCode));
+    }
+    const next = (this.seqByRoom.get(roomCode) ?? 0) + 1;
+    this.seqByRoom.set(roomCode, next);
+    return next;
   }
 }
