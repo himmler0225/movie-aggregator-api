@@ -21,8 +21,6 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Public } from '../platform/auth/auth.decorators';
-import { RateLimitGuard, RateLimit } from '../platform/common/rate-limit.guard';
-import { RATE_LIMIT } from '../shared/constants';
 import { ErrorResponseDto } from '../shared/dto/error-response.dto';
 import {
   MovieFilterDto,
@@ -47,10 +45,9 @@ const UNIFIED_RESPONSE_DESC =
 @ApiTags('Movies')
 @Controller(MOVIES_API_PREFIX)
 @Public()
-@UseGuards(RateLimitGuard)
-@RateLimit(RATE_LIMIT.movies)
 export class MoviesController {
   constructor(private readonly movies: MoviesService) {}
+
   @Get('new')
   @ApiOperation({
     summary: 'Recently updated movies',
@@ -68,6 +65,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('type/:type')
   @ApiOperation({ summary: 'List movies by type' })
   @ApiParam({ name: 'type', enum: MOVIE_TYPE_API_ENUM, example: 'phim-bo' })
@@ -85,6 +83,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('search')
   @ApiOperation({ summary: 'Search movies' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
@@ -98,6 +97,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('genres/:slug')
   @ApiOperation({ summary: 'Movies by genre' })
   @ApiParam({ name: 'slug', example: 'hanh-dong' })
@@ -115,6 +115,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('countries/:slug')
   @ApiOperation({ summary: 'Movies by country' })
   @ApiParam({ name: 'slug', example: 'han-quoc' })
@@ -132,6 +133,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('years/:year')
   @ApiOperation({ summary: 'Movies by year' })
   @ApiParam({ name: 'year', example: '2024' })
@@ -149,6 +151,7 @@ export class MoviesController {
       this.movies.resolvePinnedSource(query.source),
     );
   }
+
   @Get('meta/genres')
   @ApiOperation({ summary: 'Metadata — all genres' })
   @ApiQuery({
@@ -165,6 +168,7 @@ export class MoviesController {
   ) {
     return this.movies.getAllGenres(this.movies.resolvePinnedSource(source));
   }
+
   @Get('meta/countries')
   @ApiOperation({ summary: 'Metadata — all countries' })
   @ApiQuery({
@@ -181,6 +185,7 @@ export class MoviesController {
   ) {
     return this.movies.getAllCountries(this.movies.resolvePinnedSource(source));
   }
+
   @Get('meta/years')
   @ApiOperation({ summary: 'Metadata — all VSMOV years' })
   @ApiQuery({
@@ -197,6 +202,7 @@ export class MoviesController {
   ) {
     return this.movies.getAllYears(this.movies.resolvePinnedSource(source));
   }
+
   @Get('image/webp')
   @ApiOperation({ summary: 'WebP image proxy (phimimg.com only)' })
   @ApiQuery({
@@ -217,6 +223,7 @@ export class MoviesController {
     res.set('Content-Type', contentType);
     res.send(data);
   }
+
   @Get(':slug')
   @ApiOperation({ summary: 'Movie detail' })
   @ApiParam({ name: 'slug', example: 'one-piece' })
