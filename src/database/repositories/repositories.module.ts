@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AiChatMessagesRepository } from './ai-chat-messages.repository';
+import { AiConversationsRepository } from './ai-conversations.repository';
 import { CommentsRepository } from './comments.repository';
 import { FavoritesRepository } from './favorites.repository';
 import { MovieRatingsRepository } from './movie-ratings.repository';
@@ -15,6 +17,8 @@ import { WatchRoomsRepository } from './watch-rooms.repository';
 import { RefreshTokensRepository } from './refresh-tokens.repository';
 
 const repositories = [
+  AiConversationsRepository,
+  AiChatMessagesRepository,
   ProfilesRepository,
   FavoritesRepository,
   CommentsRepository,

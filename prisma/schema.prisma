@@ -146,6 +146,33 @@ model RoomMessage {
   @@map("room_messages")
 }
 
+model AiConversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages AiChatMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("ai_conversations")
+}
+
+model AiChatMessage {
+  id             String         @id @default(uuid()) @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  actions        Json?
+  videos         Json?
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt(sort: Asc)])
+  @@map("ai_chat_messages")
+}
+
 model PageView {
   id       String   @id @default(uuid()) @db.Uuid
   pageType String?  @map("page_type")

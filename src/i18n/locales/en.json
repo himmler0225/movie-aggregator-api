@@ -36,6 +36,7 @@
     "onlyHostClose": "Only host can close room",
     "notRoomMember": "You must join this room to view it",
     "invalidPin": "Incorrect PIN",
-    "privateRoomRequiresPremium": "Private rooms require a premium account"
+    "privateRoomRequiresPremium": "Private rooms require a premium account",
+    "conversationNotFound": "Conversation not found"
   }
 }

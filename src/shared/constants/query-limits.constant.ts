@@ -1,6 +1,7 @@
 export const QUERY_LIMITS = {
   commentsPerMovie: 50,
   roomMessages: 200,
+  aiChatMessages: 500,
   roomMembersActive: 200,
   watchHistoryPerUser: 100,
   movieWatchEventsPerMovie: 5000,

@@ -36,6 +36,7 @@
     "onlyHostClose": "Chỉ chủ phòng mới được đóng phòng",
     "notRoomMember": "Bạn cần tham gia phòng này để xem",
     "invalidPin": "Mã PIN không đúng",
-    "privateRoomRequiresPremium": "Phòng riêng tư yêu cầu tài khoản premium"
+    "privateRoomRequiresPremium": "Phòng riêng tư yêu cầu tài khoản premium",
+    "conversationNotFound": "Không tìm thấy cuộc trò chuyện"
   }
 }

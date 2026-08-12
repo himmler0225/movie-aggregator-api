@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AdminModule } from './admin/admin.module';
+import { AiChatModule } from './ai-chat/ai-chat.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { CommentsModule } from './comments/comments.module';
@@ -20,6 +21,7 @@ import { WatchlistsModule } from './watchlists/watchlists.module';
     WatchHistoryModule,
     WatchlistsModule,
     WatchPartyModule,
+    AiChatModule,
     AdminModule,
     AnalyticsModule,
   ],
