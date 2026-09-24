@@ -4,8 +4,10 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -17,8 +19,12 @@ import { RateLimitGuard, RateLimit } from '../common/rate-limit.guard';
 import {
   CreateWatchRoomDto,
   JoinWatchRoomDto,
+  PublicRoomsQueryDto,
   SendRoomMessageDto,
+  TransferHostDto,
   UpdatePlaybackDto,
+  UpdateQueueDto,
+  UpdateRoomSettingsDto,
 } from './dto/watch-party.dto';
 import { WatchPartyService } from './watch-party.service';
 
@@ -46,7 +52,36 @@ export class WatchPartyController {
       expiresHours: body.expires_hours,
       isPrivate: body.is_private,
       pin: body.pin,
+      controlMode: body.control_mode,
+      waitForBuffering: body.wait_for_buffering,
+      scheduledAt: body.scheduled_at ? new Date(body.scheduled_at) : null,
+      title: body.title,
+      episodeQueue: body.episode_queue?.map((i) => ({
+        episode_name: i.episode_name,
+        server_index: i.server_index,
+      })),
+      autoNext: body.auto_next,
     });
+  }
+  // Declared before rooms/:code so "public" is not read as a room code.
+  @Public()
+  @Get('rooms/public')
+  publicRooms(
+    @Query()
+    query: PublicRoomsQueryDto,
+  ) {
+    return this.watchParty.listPublicRooms(
+      query.status ?? 'live',
+      query.limit ?? 20,
+    );
+  }
+  @ApiBearerAuth()
+  @Get('reminders/me')
+  myReminders(
+    @CurrentUser()
+    user: AuthUser,
+  ) {
+    return this.watchParty.listMyReminders(user.id);
   }
   @Public()
   @Get('rooms/:code/preview')
@@ -128,6 +163,8 @@ export class WatchPartyController {
       content: body.content,
       type: body.type,
       avatarUrl: body.avatar_url,
+      playbackTime: body.playback_time,
+      asDanmaku: body.as_danmaku,
     });
   }
   @ApiBearerAuth()
@@ -146,6 +183,95 @@ export class WatchPartyController {
       episodeName: body.episode_name,
       serverIndex: body.server_index,
     });
+  }
+  @ApiBearerAuth()
+  @Put('rooms/:roomId/queue')
+  updateQueue(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Body()
+    body: UpdateQueueDto,
+  ) {
+    return this.watchParty.updateQueue(roomId, user.id, {
+      items: body.items.map((i) => ({
+        episode_name: i.episode_name,
+        server_index: i.server_index,
+      })),
+      autoNext: body.auto_next,
+    });
+  }
+  @ApiBearerAuth()
+  @Put('rooms/:roomId/reminder')
+  remindMe(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+  ) {
+    return this.watchParty.remindMe(roomId, user.id);
+  }
+  @ApiBearerAuth()
+  @Delete('rooms/:roomId/reminder')
+  cancelReminder(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+  ) {
+    return this.watchParty.cancelReminder(roomId, user.id);
+  }
+  @ApiBearerAuth()
+  @Patch('rooms/:roomId/settings')
+  updateSettings(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Body()
+    body: UpdateRoomSettingsDto,
+  ) {
+    return this.watchParty.updateSettings(roomId, user.id, {
+      controlMode: body.control_mode,
+      waitForBuffering: body.wait_for_buffering,
+    });
+  }
+  @ApiBearerAuth()
+  @Put('rooms/:roomId/co-hosts/:userId')
+  addCoHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Param('userId', ParseUUIDPipe)
+    userId: string,
+  ) {
+    return this.watchParty.addCoHost(roomId, user.id, userId);
+  }
+  @ApiBearerAuth()
+  @Delete('rooms/:roomId/co-hosts/:userId')
+  removeCoHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Param('userId', ParseUUIDPipe)
+    userId: string,
+  ) {
+    return this.watchParty.removeCoHost(roomId, user.id, userId);
+  }
+  @ApiBearerAuth()
+  @Post('rooms/:roomId/host')
+  transferHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Body()
+    body: TransferHostDto,
+  ) {
+    return this.watchParty.transferHost(roomId, user.id, body.user_id);
   }
   @ApiBearerAuth()
   @Delete('rooms/:roomId/members/me')

@@ -32,10 +32,18 @@
   },
   "platform": {
     "roomNotFound": "Không tìm thấy phòng",
-    "onlyHostPlayback": "Chỉ chủ phòng mới được cập nhật phát",
+    "onlyHostPlayback": "Bạn không có quyền điều khiển phát trong phòng này",
     "onlyHostClose": "Chỉ chủ phòng mới được đóng phòng",
     "notRoomMember": "Bạn cần tham gia phòng này để xem",
     "invalidPin": "Mã PIN không đúng",
-    "privateRoomRequiresPremium": "Phòng riêng tư yêu cầu tài khoản premium"
+    "privateRoomRequiresPremium": "Phòng riêng tư yêu cầu tài khoản premium",
+    "onlyHostSettings": "Chỉ chủ phòng mới được đổi cài đặt phòng",
+    "targetNotMember": "Người này không phải thành viên của phòng",
+    "tooManyCoHosts": "Mỗi phòng có tối đa 5 đồng chủ phòng",
+    "cannotTargetSelf": "Bạn đã là chủ phòng",
+    "danmakuNotFound": "Không tìm thấy bình luận",
+    "danmakuTooLong": "Bình luận bay tối đa 200 ký tự",
+    "invalidSchedule": "Giờ hẹn phải ở tương lai và trong vòng 7 ngày",
+    "roomNotScheduled": "Phòng này không có lịch hẹn sắp tới"
   }
 }

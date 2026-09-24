@@ -1,5 +1,6 @@
 import type { WatchRoom } from '@prisma/client';
 import type { WatchRoomView } from '../types';
+import { parseEpisodeQueue } from '../watch-party/room-media';
 
 export function mapWatchRoom(
   r: Pick<
@@ -16,6 +17,13 @@ export function mapWatchRoom(
     | 'isPlaying'
     | 'isPrivate'
     | 'pin'
+    | 'controlMode'
+    | 'coHostIds'
+    | 'waitForBuffering'
+    | 'episodeQueue'
+    | 'autoNext'
+    | 'scheduledAt'
+    | 'title'
     | 'createdAt'
     | 'expiresAt'
   >,
@@ -33,6 +41,13 @@ export function mapWatchRoom(
     is_playing: r.isPlaying,
     is_private: r.isPrivate,
     has_pin: !!r.pin,
+    control_mode: r.controlMode === 'everyone' ? 'everyone' : 'host',
+    co_host_ids: r.coHostIds,
+    wait_for_buffering: r.waitForBuffering,
+    episode_queue: parseEpisodeQueue(r.episodeQueue),
+    auto_next: r.autoNext,
+    scheduled_at: r.scheduledAt?.toISOString() ?? null,
+    title: r.title,
     created_at: r.createdAt.toISOString(),
     expires_at: r.expiresAt.toISOString(),
   };

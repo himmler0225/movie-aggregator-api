@@ -16,6 +16,16 @@ export const RATE_LIMIT = {
     limit: 10,
     windowMs: 60000,
   },
+  danmaku: {
+    keyPrefix: 'danmaku',
+    limit: 20,
+    windowMs: 60000,
+  },
+  momentReaction: {
+    keyPrefix: 'moments:reaction',
+    limit: 60,
+    windowMs: 60000,
+  },
   analyticsPageView: {
     keyPrefix: 'analytics:page-view',
     limit: 60,
