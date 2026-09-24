@@ -4,8 +4,10 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -18,7 +20,9 @@ import {
   CreateWatchRoomDto,
   JoinWatchRoomDto,
   SendRoomMessageDto,
+  TransferHostDto,
   UpdatePlaybackDto,
+  UpdateRoomSettingsDto,
 } from './dto/watch-party.dto';
 import { WatchPartyService } from './watch-party.service';
 
@@ -46,6 +50,8 @@ export class WatchPartyController {
       expiresHours: body.expires_hours,
       isPrivate: body.is_private,
       pin: body.pin,
+      controlMode: body.control_mode,
+      waitForBuffering: body.wait_for_buffering,
     });
   }
   @Public()
@@ -128,6 +134,8 @@ export class WatchPartyController {
       content: body.content,
       type: body.type,
       avatarUrl: body.avatar_url,
+      playbackTime: body.playback_time,
+      asDanmaku: body.as_danmaku,
     });
   }
   @ApiBearerAuth()
@@ -146,6 +154,57 @@ export class WatchPartyController {
       episodeName: body.episode_name,
       serverIndex: body.server_index,
     });
+  }
+  @ApiBearerAuth()
+  @Patch('rooms/:roomId/settings')
+  updateSettings(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Body()
+    body: UpdateRoomSettingsDto,
+  ) {
+    return this.watchParty.updateSettings(roomId, user.id, {
+      controlMode: body.control_mode,
+      waitForBuffering: body.wait_for_buffering,
+    });
+  }
+  @ApiBearerAuth()
+  @Put('rooms/:roomId/co-hosts/:userId')
+  addCoHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Param('userId', ParseUUIDPipe)
+    userId: string,
+  ) {
+    return this.watchParty.addCoHost(roomId, user.id, userId);
+  }
+  @ApiBearerAuth()
+  @Delete('rooms/:roomId/co-hosts/:userId')
+  removeCoHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Param('userId', ParseUUIDPipe)
+    userId: string,
+  ) {
+    return this.watchParty.removeCoHost(roomId, user.id, userId);
+  }
+  @ApiBearerAuth()
+  @Post('rooms/:roomId/host')
+  transferHost(
+    @CurrentUser()
+    user: AuthUser,
+    @Param('roomId')
+    roomId: string,
+    @Body()
+    body: TransferHostDto,
+  ) {
+    return this.watchParty.transferHost(roomId, user.id, body.user_id);
   }
   @ApiBearerAuth()
   @Delete('rooms/:roomId/members/me')

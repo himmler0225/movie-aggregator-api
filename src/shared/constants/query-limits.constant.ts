@@ -1,6 +1,8 @@
 export const QUERY_LIMITS = {
   commentsPerMovie: 50,
   roomMessages: 200,
+  danmakuDefault: 500,
+  danmakuMax: 1000,
   roomMembersActive: 200,
   watchHistoryPerUser: 100,
   movieWatchEventsPerMovie: 5000,

@@ -16,6 +16,9 @@ export function mapWatchRoom(
     | 'isPlaying'
     | 'isPrivate'
     | 'pin'
+    | 'controlMode'
+    | 'coHostIds'
+    | 'waitForBuffering'
     | 'createdAt'
     | 'expiresAt'
   >,
@@ -33,6 +36,9 @@ export function mapWatchRoom(
     is_playing: r.isPlaying,
     is_private: r.isPrivate,
     has_pin: !!r.pin,
+    control_mode: r.controlMode === 'everyone' ? 'everyone' : 'host',
+    co_host_ids: r.coHostIds,
+    wait_for_buffering: r.waitForBuffering,
     created_at: r.createdAt.toISOString(),
     expires_at: r.expiresAt.toISOString(),
   };

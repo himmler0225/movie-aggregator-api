@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommentsRepository } from './comments.repository';
+import { DanmakuCommentsRepository } from './danmaku-comments.repository';
 import { FavoritesRepository } from './favorites.repository';
 import { MovieRatingsRepository } from './movie-ratings.repository';
 import { PageViewsRepository } from './page-views.repository';
@@ -29,6 +30,7 @@ const repositories = [
   SearchLogsRepository,
   RolePermissionsRepository,
   RefreshTokensRepository,
+  DanmakuCommentsRepository,
 ];
 
 @Module({

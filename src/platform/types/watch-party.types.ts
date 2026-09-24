@@ -10,6 +10,8 @@ export interface CreateRoomInput {
   expiresHours?: number;
   isPrivate?: boolean;
   pin?: string | null;
+  controlMode?: RoomControlMode;
+  waitForBuffering?: boolean;
 }
 
 export interface UpdatePlaybackState {
@@ -26,6 +28,8 @@ export interface InsertMessageInput {
   content: string;
   type?: string;
   avatarUrl?: string | null;
+  playbackTime?: number | null;
+  asDanmaku?: boolean;
 }
 
 export interface AddRoomMemberInput {
@@ -56,6 +60,9 @@ export interface WatchRoomView {
   is_playing: boolean;
   is_private: boolean;
   has_pin: boolean;
+  control_mode: RoomControlMode;
+  co_host_ids: string[];
+  wait_for_buffering: boolean;
   created_at: string;
   expires_at: string;
 }
@@ -68,6 +75,7 @@ export interface RoomMessageView {
   avatar_url: string | null;
   content: string;
   type: string;
+  playback_time: number | null;
   created_at: string;
 }
 
@@ -103,6 +111,41 @@ export interface PlaybackStateMsg {
   isPlaying: boolean;
   seq: number;
   updatedAt: number;
+  /** Set when the server paused/resumed on its own to wait for buffering viewers. */
+  auto?: boolean;
+}
+
+export interface ViewerStatusWsPayload {
+  roomCode: string;
+  time: number;
+  buffering: boolean;
+}
+
+export interface BufferingViewer {
+  userId: string;
+  username: string;
+  since: number;
+}
+
+export type RoomControlMode = 'host' | 'everyone';
+
+export interface RoomControlState {
+  hostId: string;
+  coHostIds: string[];
+  controlMode: RoomControlMode;
+  waitForBuffering: boolean;
+}
+
+export interface RoomControlMsg {
+  host_id: string;
+  co_host_ids: string[];
+  control_mode: RoomControlMode;
+  wait_for_buffering: boolean;
+}
+
+export interface UpdateRoomSettingsInput {
+  controlMode?: RoomControlMode;
+  waitForBuffering?: boolean;
 }
 
 export interface GatewaySocketData {
@@ -110,5 +153,35 @@ export interface GatewaySocketData {
   roomCode?: string;
   roomId?: string;
   presence?: PresencePayload;
-  isHost?: boolean;
+}
+
+export interface DanmakuView {
+  id: string;
+  movie_slug: string;
+  episode_name: string;
+  playback_time: number;
+  user_id: string;
+  username: string | null;
+  avatar_url: string | null;
+  content: string;
+  created_at: string;
+}
+
+export interface CreateDanmakuInput {
+  userId: string;
+  movieSlug: string;
+  episodeName: string;
+  playbackTime: number;
+  content: string;
+  username?: string | null;
+  avatarUrl?: string | null;
+  roomId?: string | null;
+}
+
+export interface ListDanmakuInput {
+  movieSlug: string;
+  episodeName: string;
+  from?: number;
+  to?: number;
+  limit?: number;
 }

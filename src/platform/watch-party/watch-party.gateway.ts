@@ -10,6 +10,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
+import type { WatchRoom } from '@prisma/client';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Namespace, Server, Socket } from 'socket.io';
 import {
@@ -19,9 +20,11 @@ import {
 } from '../../config';
 import { RedisService } from '../../infra/redis';
 import { AppLogger } from '../../shared/logger';
+import { RoomMembersRepository } from '../../database/repositories/room-members.repository';
 import { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
 import type {
   BroadcastWsPayload,
+  BufferingViewer,
   GatewaySocketData,
   JoinWsPayload,
   JwtPayload,
@@ -29,8 +32,16 @@ import type {
   PlaybackEventWsPayload,
   PlaybackStateMsg,
   PresencePayload,
+  RoomControlState,
   RoomMessageView,
+  ViewerStatusWsPayload,
 } from '../types';
+import {
+  canControlPlayback,
+  toControlMsg,
+  toControlState,
+} from './room-control';
+import { WatchPartyStore } from './watch-party.store';
 
 const gatewayCors = (() => {
   const { corsOrigins } = loadAppConfig();
@@ -40,28 +51,22 @@ const gatewayCors = (() => {
   } as const;
 })();
 
-const presenceKey = (roomCode: string) => `watchparty:presence:${roomCode}`;
-const playbackKey = (roomCode: string) => `watchparty:playback:${roomCode}`;
-const playbackSeqKey = (roomCode: string) =>
-  `watchparty:playback:seq:${roomCode}`;
 const SEEK_DEBOUNCE_MS = 80;
-const PLAYBACK_TTL_SECONDS = 24 * 3600;
+/** Longest the room waits for one buffering viewer before playing on. */
+const BUFFER_MAX_WAIT_MS = 15_000;
+/** After the room gave up on a viewer, ignore their buffering this long. */
+const BUFFER_COOLDOWN_MS = 60_000;
+/** Buffering entries older than this are leftovers from a dead instance. */
+const BUFFER_STALE_MS = BUFFER_MAX_WAIT_MS * 2;
+/** Viewers further than this from the room position get corrected. */
+const DRIFT_TOLERANCE_S = 2;
+/** How long a disconnected host has to come back before the host moves on. */
+const HOST_GRACE_MS = 30_000;
 const PLAYBACK_EVENT_TYPES: ReadonlySet<PlaybackEventType> = new Set([
   'PLAY',
   'PAUSE',
   'SEEK',
 ]);
-// Assigns the seq and stores the state in one atomic step, so the stored
-// state always carries the highest seq even when commits race across
-// instances.
-const COMMIT_PLAYBACK_SCRIPT = `
-local seq = redis.call('INCR', KEYS[2])
-local state = cjson.decode(ARGV[1])
-state['seq'] = seq
-redis.call('SET', KEYS[1], cjson.encode(state), 'EX', ARGV[2])
-redis.call('EXPIRE', KEYS[2], ARGV[2])
-return seq
-`;
 
 interface PendingSeek {
   timer: NodeJS.Timeout;
@@ -73,6 +78,24 @@ interface PlaybackCommand {
   type: PlaybackEventType;
   time: number;
   isPlaying?: boolean;
+  auto?: boolean;
+}
+
+interface BufferingEntry {
+  roomCode: string;
+  roomId: string;
+  timer: NodeJS.Timeout;
+}
+
+export type HostChangeReason = 'host_left' | 'transferred';
+
+/** Where playback is now, extrapolating from the last committed state. */
+export function currentPlaybackTime(
+  state: Pick<PlaybackStateMsg, 'time' | 'isPlaying' | 'updatedAt'>,
+  now = Date.now(),
+): number {
+  if (!state.isPlaying) return state.time;
+  return state.time + Math.max(0, now - state.updatedAt) / 1000;
 }
 
 @WebSocketGateway({
@@ -85,19 +108,18 @@ export class WatchPartyGateway
   private readonly logger = AppLogger.create(WatchPartyGateway.name);
   @WebSocketServer()
   server!: Server;
-  private readonly presenceByRoom = new Map<
-    string,
-    Map<string, PresencePayload>
-  >();
-  private readonly playbackByRoom = new Map<string, PlaybackStateMsg>();
-  private readonly seqByRoom = new Map<string, number>();
   private readonly pendingSeeks = new Map<string, PendingSeek>();
   private readonly commitQueues = new Map<string, Promise<boolean>>();
+  private readonly bufferingBySocket = new Map<string, BufferingEntry>();
+  private readonly bufferCooldownUntil = new Map<string, number>();
+  private readonly hostTransferTimers = new Map<string, NodeJS.Timeout>();
   constructor(
     private readonly jwt: JwtService,
     private readonly appConfig: AppConfigService,
     private readonly redis: RedisService,
     private readonly rooms: WatchRoomsRepository,
+    private readonly members: RoomMembersRepository,
+    private readonly store: WatchPartyStore,
   ) {}
   afterInit(server: Namespace) {
     const pubClient = this.redis.getClient();
@@ -126,13 +148,13 @@ export class WatchPartyGateway
   }
   async handleDisconnect(client: Socket) {
     const data = client.data as GatewaySocketData;
+    this.bufferCooldownUntil.delete(client.id);
     if (!data.roomCode) return;
-    await this.removePresence(data.roomCode, client.id);
-    client.to(data.roomCode).emit('presence:leave', {
-      userId: data.presence?.userId,
-      username: data.presence?.username,
-    });
-    await this.emitPresenceSync(data.roomCode);
+    try {
+      await this.leaveRoom(client, data.roomCode);
+    } catch (err) {
+      this.logError(`Disconnect cleanup failed for ${data.roomCode}`, err);
+    }
   }
   @SubscribeMessage('join')
   async handleJoin(
@@ -142,34 +164,49 @@ export class WatchPartyGateway
     body: JoinWsPayload,
   ) {
     const data = client.data as GatewaySocketData;
-    const roomCode = body.roomCode?.toUpperCase();
-    if (!roomCode || !body.presence) return { ok: false };
+    const roomCode = body?.roomCode?.toUpperCase();
+    if (!roomCode || !body.presence || !data.userId) return { ok: false };
+    const room = await this.rooms.findByCode(roomCode);
+    if (!room) return { ok: false };
+    if (
+      room.isPrivate &&
+      room.hostId !== data.userId &&
+      !(await this.members.isMember(room.id, data.userId))
+    ) {
+      return { ok: false, error: 'platform.notRoomMember' };
+    }
     if (data.roomCode && data.roomCode !== roomCode) {
       void client.leave(data.roomCode);
-      await this.removePresence(data.roomCode, client.id);
+      await this.leaveRoom(client, data.roomCode);
     }
     void client.join(roomCode);
     data.roomCode = roomCode;
-    data.presence = body.presence;
-    const room = await this.rooms.findByCode(roomCode);
-    data.roomId = room?.id;
-    data.isHost = !!room && room.hostId === data.userId;
-    await this.setPresence(roomCode, client.id, body.presence);
-    client.to(roomCode).emit('presence:join', body.presence);
+    data.roomId = room.id;
+    const control = await this.loadControl(roomCode, room);
+    const presence: PresencePayload = {
+      ...body.presence,
+      userId: data.userId,
+      isHost: control?.hostId === data.userId,
+    };
+    data.presence = presence;
+    if (control?.hostId === data.userId) this.cancelHostTransfer(roomCode);
+    await this.store.setPresence(roomCode, client.id, presence);
+    client.to(roomCode).emit('presence:join', presence);
     await this.emitPresenceSync(roomCode);
-    const cached = await this.getPlaybackState(roomCode);
-    const playbackState: PlaybackStateMsg | null = cached
+    const cached = await this.store.getPlayback(roomCode);
+    const playbackState: PlaybackStateMsg = cached
       ? { ...cached, type: cached.isPlaying ? 'PLAY' : 'PAUSE' }
-      : room
-        ? {
-            type: room.isPlaying ? 'PLAY' : 'PAUSE',
-            time: room.playbackTime,
-            isPlaying: room.isPlaying,
-            seq: 0,
-            updatedAt: Date.now(),
-          }
-        : null;
-    if (playbackState) client.emit('playback:sync', playbackState);
+      : {
+          type: room.isPlaying ? 'PLAY' : 'PAUSE',
+          time: room.playbackTime,
+          isPlaying: room.isPlaying,
+          seq: 0,
+          updatedAt: Date.now(),
+        };
+    client.emit('playback:sync', playbackState);
+    if (control) client.emit('room:control', toControlMsg(control));
+    const waiting = await this.listWaiting(roomCode);
+    if (waiting.length) client.emit('playback:waiting', { users: waiting });
     return { ok: true };
   }
   @SubscribeMessage('broadcast')
@@ -199,11 +236,15 @@ export class WatchPartyGateway
     const data = client.data as GatewaySocketData;
     const roomCode = body?.roomCode?.toUpperCase();
     if (!roomCode || roomCode !== data.roomCode) return { ok: false };
-    if (!data.isHost || !data.roomId) return { ok: false };
+    if (!data.roomId) return { ok: false };
     const type = body.type;
     const time = Number(body.time);
     if (!PLAYBACK_EVENT_TYPES.has(type)) return { ok: false };
     if (!Number.isFinite(time) || time < 0) return { ok: false };
+    const control = await this.loadControl(roomCode);
+    if (!control || !canControlPlayback(control, data.userId)) {
+      return { ok: false };
+    }
     const roomId = data.roomId;
     if (type === 'SEEK') {
       const pending = this.pendingSeeks.get(roomCode);
@@ -219,6 +260,44 @@ export class WatchPartyGateway
     const ok = await this.enqueueCommit(roomCode, roomId, { type, time });
     return { ok };
   }
+  /**
+   * Viewers report their position and whether they are buffering every few
+   * seconds. Buffering can pause the room until they catch up; a viewer that
+   * drifted too far gets a `playback:correct`.
+   */
+  @SubscribeMessage('viewer:status')
+  async handleViewerStatus(
+    @ConnectedSocket()
+    client: Socket,
+    @MessageBody()
+    body: ViewerStatusWsPayload,
+  ) {
+    const data = client.data as GatewaySocketData;
+    const roomCode = body?.roomCode?.toUpperCase();
+    if (!roomCode || roomCode !== data.roomCode) return { ok: false };
+    if (!data.roomId || typeof body.buffering !== 'boolean') {
+      return { ok: false };
+    }
+    const time = Number(body.time);
+    if (!Number.isFinite(time) || time < 0) return { ok: false };
+    if (body.buffering) {
+      await this.startBuffering(client, roomCode, data.roomId);
+      return { ok: true };
+    }
+    await this.stopBuffering(client.id);
+    const state = await this.store.getPlayback(roomCode);
+    if (state) {
+      const expected = currentPlaybackTime(state);
+      if (Math.abs(time - expected) > DRIFT_TOLERANCE_S) {
+        client.emit('playback:correct', {
+          ...state,
+          time: expected,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    return { ok: true };
+  }
   /** Applies a playback change made outside the socket (REST) so cached state and viewers follow it. */
   async applyPlaybackUpdate(
     roomCode: string,
@@ -233,6 +312,78 @@ export class WatchPartyGateway
       time,
       isPlaying,
     });
+  }
+  /** Caches the room's control settings and tells everyone in it. */
+  async publishControl(roomCode: string, control: RoomControlState) {
+    const code = roomCode.toUpperCase();
+    await this.store.setControl(code, control);
+    this.server?.to(code).emit('room:control', toControlMsg(control));
+    await this.emitPresenceSync(code);
+  }
+  emitHostChanged(
+    roomCode: string,
+    change: {
+      hostId: string;
+      previousHostId: string;
+      username: string | null;
+      reason: HostChangeReason;
+    },
+  ) {
+    this.server?.to(roomCode.toUpperCase()).emit('host:changed', {
+      host_id: change.hostId,
+      previous_host_id: change.previousHostId,
+      username: change.username,
+      reason: change.reason,
+    });
+  }
+  emitMessageCreated(roomCode: string, message: RoomMessageView) {
+    this.server?.to(roomCode.toUpperCase()).emit('message:created', message);
+  }
+  emitRoomClosed(roomCode: string) {
+    const code = roomCode.toUpperCase();
+    this.server?.to(code).emit('room:closed', {});
+    void this.clearRoomState(code);
+  }
+  /** Drops cached presence, playback and control for a room code; never throws. */
+  async clearRoomState(roomCode: string) {
+    const code = roomCode.toUpperCase();
+    const pending = this.pendingSeeks.get(code);
+    if (pending) clearTimeout(pending.timer);
+    this.pendingSeeks.delete(code);
+    this.cancelHostTransfer(code);
+    for (const [socketId, entry] of this.bufferingBySocket) {
+      if (entry.roomCode !== code) continue;
+      clearTimeout(entry.timer);
+      this.bufferingBySocket.delete(socketId);
+    }
+    try {
+      await this.store.clearRoom(code);
+    } catch (err) {
+      this.logError(`Failed to clear room state for ${code}`, err);
+    }
+  }
+  private async leaveRoom(client: Socket, roomCode: string) {
+    const data = client.data as GatewaySocketData;
+    await this.stopBuffering(client.id);
+    await this.store.removePresence(roomCode, client.id);
+    client.to(roomCode).emit('presence:leave', {
+      userId: data.presence?.userId,
+      username: data.presence?.username,
+    });
+    await this.emitPresenceSync(roomCode);
+    if (data.userId) await this.scheduleHostTransfer(roomCode, data.userId);
+  }
+  private async loadControl(
+    roomCode: string,
+    room?: WatchRoom | null,
+  ): Promise<RoomControlState | null> {
+    const cached = await this.store.getControl(roomCode);
+    if (cached) return cached;
+    const row = room ?? (await this.rooms.findByCode(roomCode));
+    if (!row) return null;
+    const control = toControlState(row);
+    await this.store.setControl(roomCode, control);
+    return control;
   }
   private flushPendingSeek(roomCode: string) {
     const pending = this.pendingSeeks.get(roomCode);
@@ -255,11 +406,8 @@ export class WatchPartyGateway
       .then(() => this.commitPlaybackEvent(roomCode, roomId, command))
       .then(
         () => true,
-        (err: Error) => {
-          this.logger.error(
-            `Playback commit failed for ${roomCode}: ${err.message}`,
-            err.stack,
-          );
+        (err: unknown) => {
+          this.logError(`Playback commit failed for ${roomCode}`, err);
           return false;
         },
       );
@@ -276,16 +424,19 @@ export class WatchPartyGateway
     roomId: string,
     command: PlaybackCommand,
   ) {
+    // A person taking control cancels any pending auto-resume.
+    if (!command.auto) await this.store.takeAutoPaused(roomCode);
     const isPlaying =
       command.isPlaying ??
       (command.type === 'SEEK'
         ? await this.currentIsPlaying(roomCode, roomId)
         : command.type === 'PLAY');
-    const state = await this.storePlaybackState(roomCode, {
+    const state = await this.store.commitPlayback(roomCode, {
       type: command.type,
       time: command.time,
       isPlaying,
       updatedAt: Date.now(),
+      ...(command.auto ? { auto: true } : {}),
     });
     this.server?.to(roomCode).emit('playback:event', state);
     await this.rooms.updateMany(
@@ -294,132 +445,136 @@ export class WatchPartyGateway
     );
   }
   private async currentIsPlaying(roomCode: string, roomId: string) {
-    const cached = await this.getPlaybackState(roomCode);
+    const cached = await this.store.getPlayback(roomCode);
     if (cached) return cached.isPlaying;
     const room = await this.rooms.findById(roomId);
     return room?.isPlaying ?? false;
   }
-  emitMessageCreated(roomCode: string, message: RoomMessageView) {
-    this.server?.to(roomCode.toUpperCase()).emit('message:created', message);
-  }
-  emitRoomClosed(roomCode: string) {
-    const code = roomCode.toUpperCase();
-    this.server?.to(code).emit('room:closed', {});
-    void this.clearRoomState(code);
-  }
-  /** Drops cached presence and playback for a room code; never throws. */
-  async clearRoomState(roomCode: string) {
-    const code = roomCode.toUpperCase();
-    const pending = this.pendingSeeks.get(code);
-    if (pending) clearTimeout(pending.timer);
-    this.pendingSeeks.delete(code);
-    this.playbackByRoom.delete(code);
-    this.seqByRoom.delete(code);
-    this.presenceByRoom.delete(code);
-    const client = this.redis.getClient();
-    if (!client) return;
-    try {
-      await client.del(
-        playbackKey(code),
-        playbackSeqKey(code),
-        presenceKey(code),
-      );
-    } catch (err) {
-      const error = err as Error;
-      this.logger.error(
-        `Failed to clear room state for ${code}: ${error.message}`,
-        error.stack,
-      );
-    }
-  }
-  private async setPresence(
+  private async startBuffering(
+    client: Socket,
     roomCode: string,
-    socketId: string,
-    presence: PresencePayload,
+    roomId: string,
   ) {
-    const client = this.redis.getClient();
-    if (client) {
-      await client.hset(
-        presenceKey(roomCode),
-        socketId,
-        JSON.stringify(presence),
+    // Only the start of a buffering spell counts; repeats are the same spell.
+    if (this.bufferingBySocket.has(client.id)) return;
+    const cooldown = this.bufferCooldownUntil.get(client.id);
+    if (cooldown && cooldown > Date.now()) return;
+    const control = await this.loadControl(roomCode);
+    if (!control?.waitForBuffering) return;
+    const data = client.data as GatewaySocketData;
+    const timer = setTimeout(() => {
+      this.bufferCooldownUntil.set(client.id, Date.now() + BUFFER_COOLDOWN_MS);
+      void this.stopBuffering(client.id).catch((err) =>
+        this.logError(`Buffering timeout failed for ${roomCode}`, err),
       );
-      return;
-    }
-    let room = this.presenceByRoom.get(roomCode);
-    if (!room) {
-      room = new Map();
-      this.presenceByRoom.set(roomCode, room);
-    }
-    room.set(socketId, presence);
+    }, BUFFER_MAX_WAIT_MS);
+    this.bufferingBySocket.set(client.id, { roomCode, roomId, timer });
+    await this.store.addBuffering(roomCode, client.id, {
+      userId: data.userId ?? '',
+      username: data.presence?.username ?? '',
+      since: Date.now(),
+    });
+    await this.emitWaiting(roomCode);
+    const state = await this.store.getPlayback(roomCode);
+    if (!state?.isPlaying) return;
+    if (!(await this.store.markAutoPaused(roomCode))) return;
+    this.flushPendingSeek(roomCode);
+    await this.enqueueCommit(roomCode, roomId, {
+      type: 'PAUSE',
+      time: currentPlaybackTime(state),
+      auto: true,
+    });
   }
-  private async removePresence(roomCode: string, socketId: string) {
-    const client = this.redis.getClient();
-    if (client) {
-      await client.hdel(presenceKey(roomCode), socketId);
-      return;
-    }
-    const room = this.presenceByRoom.get(roomCode);
-    room?.delete(socketId);
-    if (room?.size === 0) {
-      // Last viewer left: the DB row already holds the latest playback.
-      this.presenceByRoom.delete(roomCode);
-      this.playbackByRoom.delete(roomCode);
-      this.seqByRoom.delete(roomCode);
-    }
+  private async stopBuffering(socketId: string) {
+    const entry = this.bufferingBySocket.get(socketId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this.bufferingBySocket.delete(socketId);
+    await this.store.removeBuffering(entry.roomCode, socketId);
+    const waiting = await this.emitWaiting(entry.roomCode);
+    if (waiting.length) return;
+    if (!(await this.store.takeAutoPaused(entry.roomCode))) return;
+    const state = await this.store.getPlayback(entry.roomCode);
+    if (!state || state.isPlaying) return;
+    await this.enqueueCommit(entry.roomCode, entry.roomId, {
+      type: 'PLAY',
+      time: state.time,
+      auto: true,
+    });
   }
-  private async listPresence(roomCode: string): Promise<PresencePayload[]> {
-    const client = this.redis.getClient();
-    if (client) {
-      const entries = await client.hgetall(presenceKey(roomCode));
-      return Object.values(entries)
-        .map((raw) => JSON.parse(raw) as PresencePayload)
-        .sort((a, b) => a.joinedAt - b.joinedAt);
-    }
-    const room = this.presenceByRoom.get(roomCode);
-    return room
-      ? [...room.values()].sort((a, b) => a.joinedAt - b.joinedAt)
-      : [];
+  private async listWaiting(roomCode: string): Promise<BufferingViewer[]> {
+    const cutoff = Date.now() - BUFFER_STALE_MS;
+    const viewers = await this.store.listBuffering(roomCode);
+    return viewers.filter((v) => v.since > cutoff);
+  }
+  private async emitWaiting(roomCode: string) {
+    const users = await this.listWaiting(roomCode);
+    this.server?.to(roomCode).emit('playback:waiting', { users });
+    return users;
+  }
+  private async scheduleHostTransfer(roomCode: string, userId: string) {
+    if (this.hostTransferTimers.has(roomCode)) return;
+    const control = await this.loadControl(roomCode);
+    if (!control || control.hostId !== userId) return;
+    const present = await this.store.listPresence(roomCode);
+    // Still connected from another tab or device.
+    if (present.some((p) => p.userId === userId)) return;
+    const timer = setTimeout(() => {
+      this.hostTransferTimers.delete(roomCode);
+      void this.transferHostIfAbsent(roomCode, userId).catch((err) =>
+        this.logError(`Host transfer failed for ${roomCode}`, err),
+      );
+    }, HOST_GRACE_MS);
+    this.hostTransferTimers.set(roomCode, timer);
+  }
+  private cancelHostTransfer(roomCode: string) {
+    const timer = this.hostTransferTimers.get(roomCode);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.hostTransferTimers.delete(roomCode);
+  }
+  private async transferHostIfAbsent(roomCode: string, previousHostId: string) {
+    const room = await this.rooms.findByCode(roomCode);
+    if (!room || room.hostId !== previousHostId) return;
+    const present = await this.store.listPresence(roomCode);
+    if (present.some((p) => p.userId === previousHostId)) return;
+    const candidates = present.filter((p) => p.userId !== previousHostId);
+    if (!candidates.length) return;
+    // Co-hosts first, then whoever has been in the room longest.
+    const next =
+      candidates.find((p) => room.coHostIds.includes(p.userId)) ??
+      candidates[0];
+    const coHostIds = room.coHostIds.filter((id) => id !== next.userId);
+    // Conditional on the old host so two instances can't both transfer.
+    const updated = await this.rooms.updateMany(
+      { id: room.id, hostId: previousHostId },
+      { hostId: next.userId, coHostIds },
+    );
+    if (!updated) return;
+    await this.publishControl(roomCode, {
+      ...toControlState(room),
+      hostId: next.userId,
+      coHostIds,
+    });
+    this.emitHostChanged(roomCode, {
+      hostId: next.userId,
+      previousHostId,
+      username: next.username,
+      reason: 'host_left',
+    });
   }
   private async emitPresenceSync(roomCode: string) {
-    const members = await this.listPresence(roomCode);
-    this.server?.to(roomCode).emit('presence:sync', members);
+    const [members, control] = await Promise.all([
+      this.store.listPresence(roomCode),
+      this.store.getControl(roomCode),
+    ]);
+    const synced = control
+      ? members.map((m) => ({ ...m, isHost: m.userId === control.hostId }))
+      : members;
+    this.server?.to(roomCode).emit('presence:sync', synced);
   }
-  private async getPlaybackState(
-    roomCode: string,
-  ): Promise<PlaybackStateMsg | null> {
-    const client = this.redis.getClient();
-    if (client) {
-      const raw = await client.get(playbackKey(roomCode));
-      if (!raw) return null;
-      const state = JSON.parse(raw) as Partial<PlaybackStateMsg>;
-      // States written before isPlaying existed can't be trusted; use the DB.
-      return typeof state.isPlaying === 'boolean'
-        ? (state as PlaybackStateMsg)
-        : null;
-    }
-    return this.playbackByRoom.get(roomCode) ?? null;
-  }
-  private async storePlaybackState(
-    roomCode: string,
-    state: Omit<PlaybackStateMsg, 'seq'>,
-  ): Promise<PlaybackStateMsg> {
-    const client = this.redis.getClient();
-    if (client) {
-      const seq = (await client.eval(
-        COMMIT_PLAYBACK_SCRIPT,
-        2,
-        playbackKey(roomCode),
-        playbackSeqKey(roomCode),
-        JSON.stringify(state),
-        PLAYBACK_TTL_SECONDS,
-      )) as number;
-      return { ...state, seq };
-    }
-    const seq = (this.seqByRoom.get(roomCode) ?? 0) + 1;
-    this.seqByRoom.set(roomCode, seq);
-    const stored = { ...state, seq };
-    this.playbackByRoom.set(roomCode, stored);
-    return stored;
+  private logError(message: string, err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    this.logger.error(`${message}: ${error.message}`, error.stack);
   }
 }
