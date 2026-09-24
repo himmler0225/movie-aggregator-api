@@ -179,8 +179,10 @@ export class WatchPartyGateway
     @MessageBody()
     body: BroadcastWsPayload,
   ) {
-    const roomCode = body.roomCode?.toUpperCase();
-    if (!roomCode || !body.event) return { ok: false };
+    const data = client.data as GatewaySocketData;
+    const roomCode = body?.roomCode?.toUpperCase();
+    if (!roomCode || roomCode !== data.roomCode) return { ok: false };
+    if (!body.event || typeof body.event !== 'string') return { ok: false };
     client.to(roomCode).emit('broadcast', {
       event: body.event,
       payload: body.payload ?? {},

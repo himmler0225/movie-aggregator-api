@@ -168,4 +168,28 @@ describe('WatchPartyGateway playback', () => {
     ).playbackByRoom;
     expect(events.get('AAAA')).toMatchObject({ seq: 1, time: 5 });
   });
+
+  it('only broadcasts into the room the socket joined', () => {
+    const { gateway } = setup();
+    const sent: string[] = [];
+    const viewer = {
+      ...socket('viewer-1', 'AAAA', 'id-AAAA'),
+      to: (room: string) => ({ emit: () => sent.push(room) }),
+    } as unknown as Socket;
+    expect(
+      gateway.handleBroadcast(viewer, {
+        roomCode: 'BBBB',
+        event: 'reaction',
+        payload: {},
+      }),
+    ).toEqual({ ok: false });
+    expect(
+      gateway.handleBroadcast(viewer, {
+        roomCode: 'aaaa',
+        event: 'reaction',
+        payload: {},
+      }),
+    ).toEqual({ ok: true });
+    expect(sent).toEqual(['AAAA']);
+  });
 });
