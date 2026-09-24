@@ -24,4 +24,13 @@ export class DanmakuCommentsRepository extends BaseRepository<DanmakuComment> {
       take: limit,
     });
   }
+  countByBucket(movieSlug: string, episodeName: string, bucketSeconds: number) {
+    return this.prisma.$queryRaw<Array<{ bucket: number; count: number }>>`
+      SELECT floor(playback_time / ${bucketSeconds})::int AS bucket,
+             COUNT(*)::int AS count
+      FROM public.danmaku_comments
+      WHERE movie_slug = ${movieSlug} AND episode_name = ${episodeName}
+      GROUP BY 1
+    `;
+  }
 }

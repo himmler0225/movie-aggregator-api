@@ -5,6 +5,7 @@ import type {
   PlaybackStateMsg,
   PresencePayload,
   RoomControlState,
+  RoomMediaState,
 } from '../types';
 
 const presenceKey = (roomCode: string) => `watchparty:presence:${roomCode}`;
@@ -14,6 +15,8 @@ const playbackSeqKey = (roomCode: string) =>
 const controlKey = (roomCode: string) => `watchparty:control:${roomCode}`;
 const bufferingKey = (roomCode: string) => `watchparty:buffering:${roomCode}`;
 const autoPausedKey = (roomCode: string) => `watchparty:autopause:${roomCode}`;
+const mediaKey = (roomCode: string) => `watchparty:media:${roomCode}`;
+const onceKey = (key: string) => `watchparty:once:${key}`;
 const STATE_TTL_SECONDS = 24 * 3600;
 // Assigns the seq and stores the state in one atomic step, so the stored
 // state always carries the highest seq even when commits race across
@@ -45,6 +48,8 @@ export class WatchPartyStore {
     Map<string, BufferingViewer>
   >();
   private readonly autoPausedRooms = new Set<string>();
+  private readonly mediaByRoom = new Map<string, RoomMediaState>();
+  private readonly onceUntil = new Map<string, number>();
   constructor(private readonly redis: RedisService) {}
 
   async setPresence(
@@ -84,7 +89,14 @@ export class WatchPartyStore {
       this.controlByRoom.delete(roomCode);
       this.bufferingByRoom.delete(roomCode);
       this.autoPausedRooms.delete(roomCode);
+      this.mediaByRoom.delete(roomCode);
     }
+  }
+  /** Connected sockets in the room (a user with two tabs counts twice). */
+  async countPresence(roomCode: string): Promise<number> {
+    const client = this.redis.getClient();
+    if (client) return client.hlen(presenceKey(roomCode));
+    return this.presenceByRoom.get(roomCode)?.size ?? 0;
   }
   async listPresence(roomCode: string): Promise<PresencePayload[]> {
     const client = this.redis.getClient();
@@ -156,6 +168,44 @@ export class WatchPartyStore {
       return;
     }
     this.controlByRoom.set(roomCode, control);
+  }
+
+  async getMedia(roomCode: string): Promise<RoomMediaState | null> {
+    const client = this.redis.getClient();
+    if (client) {
+      const raw = await client.get(mediaKey(roomCode));
+      return raw ? (JSON.parse(raw) as RoomMediaState) : null;
+    }
+    return this.mediaByRoom.get(roomCode) ?? null;
+  }
+  async setMedia(roomCode: string, media: RoomMediaState) {
+    const client = this.redis.getClient();
+    if (client) {
+      await client.set(
+        mediaKey(roomCode),
+        JSON.stringify(media),
+        'EX',
+        STATE_TTL_SECONDS,
+      );
+      return;
+    }
+    this.mediaByRoom.set(roomCode, media);
+  }
+
+  /** True for exactly one caller per key within the TTL, across instances. */
+  async claimOnce(key: string, ttlSeconds: number): Promise<boolean> {
+    const client = this.redis.getClient();
+    if (client) {
+      const res = await client.set(onceKey(key), '1', 'EX', ttlSeconds, 'NX');
+      return res === 'OK';
+    }
+    const now = Date.now();
+    for (const [k, until] of this.onceUntil) {
+      if (until <= now) this.onceUntil.delete(k);
+    }
+    if (this.onceUntil.has(key)) return false;
+    this.onceUntil.set(key, now + ttlSeconds * 1000);
+    return true;
   }
 
   /** Returns every viewer still buffering after the add. */
@@ -241,6 +291,7 @@ export class WatchPartyStore {
     this.controlByRoom.delete(roomCode);
     this.bufferingByRoom.delete(roomCode);
     this.autoPausedRooms.delete(roomCode);
+    this.mediaByRoom.delete(roomCode);
     const client = this.redis.getClient();
     if (!client) return;
     await client.del(
@@ -250,6 +301,7 @@ export class WatchPartyStore {
       controlKey(roomCode),
       bufferingKey(roomCode),
       autoPausedKey(roomCode),
+      mediaKey(roomCode),
     );
   }
 }

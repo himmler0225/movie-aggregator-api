@@ -4,6 +4,8 @@ import type { AppConfigService } from '../../config';
 import type { RoomMembersRepository } from '../../database/repositories/room-members.repository';
 import type { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
 import type { RedisService } from '../../infra/redis';
+import type { MoviesService } from '../../movies/movies.service';
+import type { MomentsService } from '../moments/moments.service';
 import type {
   GatewaySocketData,
   PlaybackStateMsg,
@@ -24,6 +26,11 @@ interface FakeRoom {
   isPrivate: boolean;
   playbackTime: number;
   isPlaying: boolean;
+  movieSlug: string;
+  episodeName: string | null;
+  serverIndex: number;
+  episodeQueue: { episode_name: string; server_index: number }[];
+  autoNext: boolean;
 }
 
 function makeRoom(code: string, overrides: Partial<FakeRoom> = {}): FakeRoom {
@@ -37,6 +44,11 @@ function makeRoom(code: string, overrides: Partial<FakeRoom> = {}): FakeRoom {
     isPrivate: false,
     playbackTime: 0,
     isPlaying: false,
+    movieSlug: 'movie',
+    episodeName: 'Tập 1',
+    serverIndex: 0,
+    episodeQueue: [],
+    autoNext: true,
     ...overrides,
   };
 }
@@ -69,6 +81,24 @@ function setup(roomOverrides: Partial<FakeRoom> = {}) {
       Promise.resolve(memberIds.has(userId) ? { userId } : null),
     ),
   };
+  const movies = {
+    getMovieDetail: jest.fn(() =>
+      Promise.resolve({
+        data: {
+          episodes: [
+            {
+              server_name: 'VIP',
+              server_data: ['Tập 1', 'Tập 2', 'Tập 3'].map((name, i) => ({
+                name,
+                slug: `tap-${i + 1}`,
+              })),
+            },
+          ],
+        },
+      }),
+    ),
+  };
+  const moments = { record: jest.fn(() => true) };
   const redis = { getClient: () => null } as unknown as RedisService;
   const store = new WatchPartyStore(redis);
   const gateway = new WatchPartyGateway(
@@ -78,6 +108,8 @@ function setup(roomOverrides: Partial<FakeRoom> = {}) {
     rooms as unknown as WatchRoomsRepository,
     members as unknown as RoomMembersRepository,
     store,
+    movies as unknown as MoviesService,
+    moments as unknown as MomentsService,
   );
   const emitted: { room: string; event: string; payload: unknown }[] = [];
   gateway.server = {
@@ -88,7 +120,17 @@ function setup(roomOverrides: Partial<FakeRoom> = {}) {
   } as unknown as Server;
   const eventsOf = <T>(event: string) =>
     emitted.filter((e) => e.event === event).map((e) => e.payload as T);
-  return { gateway, rooms, members, memberIds, roomRows, store, eventsOf };
+  return {
+    gateway,
+    rooms,
+    members,
+    memberIds,
+    roomRows,
+    store,
+    movies,
+    moments,
+    eventsOf,
+  };
 }
 
 interface FakeSocket {
@@ -476,5 +518,190 @@ describe('WatchPartyGateway', () => {
     expect(currentPlaybackTime({ ...state, isPlaying: false }, 6_000)).toBe(
       100,
     );
+  });
+
+  describe('episodes', () => {
+    it('sends the current episode and queue on join', async () => {
+      const { gateway } = setup({
+        episodeQueue: [{ episode_name: 'Tập 5', server_index: 0 }],
+      });
+      const viewer = await join(gateway, 'viewer-1');
+      expect(
+        viewer.sent.find((e) => e.event === 'room:media')?.payload,
+      ).toEqual({
+        episode_name: 'Tập 1',
+        server_index: 0,
+        episode_queue: [{ episode_name: 'Tập 5', server_index: 0 }],
+        auto_next: true,
+      });
+    });
+
+    it('lets a controller switch episodes and restarts at 0', async () => {
+      const { gateway, roomRows, eventsOf } = setup({
+        episodeQueue: [{ episode_name: 'Tập 4', server_index: 0 }],
+      });
+      const host = await join(gateway, HOST_ID);
+      const viewer = await join(gateway, 'viewer-1');
+      await expect(
+        gateway.handleEpisodeChange(viewer.socket, {
+          roomCode: 'AAAA',
+          episodeName: 'Tập 4',
+        }),
+      ).resolves.toEqual({ ok: false });
+      await expect(
+        gateway.handleEpisodeChange(host.socket, {
+          roomCode: 'AAAA',
+          episodeName: 'Tập 4',
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(roomRows.get('AAAA')).toMatchObject({
+        episodeName: 'Tập 4',
+        episodeQueue: [],
+        playbackTime: 0,
+      });
+      expect(eventsOf('episode:changed').at(-1)).toMatchObject({
+        episode_name: 'Tập 4',
+        reason: 'manual',
+      });
+      expect(eventsOf<PlaybackStateMsg>('playback:event').at(-1)).toMatchObject(
+        { time: 0 },
+      );
+    });
+
+    it('rejects blank or oversized episode names', async () => {
+      const { gateway } = setup();
+      const host = await join(gateway, HOST_ID);
+      for (const episodeName of ['', '   ', 'x'.repeat(201)]) {
+        await expect(
+          gateway.handleEpisodeChange(host.socket, {
+            roomCode: 'AAAA',
+            episodeName,
+          }),
+        ).resolves.toEqual({ ok: false });
+      }
+    });
+
+    it('advances to the queue head once when the episode ends', async () => {
+      const { gateway, roomRows, eventsOf } = setup({
+        episodeQueue: [
+          { episode_name: 'Tập 7', server_index: 1 },
+          { episode_name: 'Tập 8', server_index: 1 },
+        ],
+      });
+      const a = await join(gateway, 'viewer-a');
+      const b = await join(gateway, 'viewer-b');
+      const ended = { roomCode: 'AAAA', episodeName: 'Tập 1' };
+      const [first, second] = await Promise.all([
+        gateway.handleEpisodeEnded(a.socket, ended),
+        gateway.handleEpisodeEnded(b.socket, ended),
+      ]);
+      expect([first.advanced, second.advanced].sort()).toEqual([false, true]);
+      expect(roomRows.get('AAAA')).toMatchObject({
+        episodeName: 'Tập 7',
+        serverIndex: 1,
+        episodeQueue: [{ episode_name: 'Tập 8', server_index: 1 }],
+        isPlaying: true,
+      });
+      expect(eventsOf('episode:changed')).toHaveLength(1);
+      expect(eventsOf('episode:changed')[0]).toMatchObject({
+        reason: 'auto_next',
+      });
+      expect(eventsOf<PlaybackStateMsg>('playback:event').at(-1)).toMatchObject(
+        { type: 'PLAY', time: 0, isPlaying: true },
+      );
+    });
+
+    it('falls back to the next episode of the movie', async () => {
+      const { gateway, roomRows } = setup();
+      const viewer = await join(gateway, 'viewer-1');
+      const result = await gateway.handleEpisodeEnded(viewer.socket, {
+        roomCode: 'AAAA',
+        episodeName: 'Tập 1',
+      });
+      expect(result.advanced).toBe(true);
+      expect(roomRows.get('AAAA')?.episodeName).toBe('Tập 2');
+    });
+
+    it('matches episodes by slug too', async () => {
+      const { gateway, roomRows } = setup({ episodeName: 'tap-2' });
+      const viewer = await join(gateway, 'viewer-1');
+      await gateway.handleEpisodeEnded(viewer.socket, {
+        roomCode: 'AAAA',
+        episodeName: 'tap-2',
+      });
+      expect(roomRows.get('AAAA')?.episodeName).toBe('tap-3');
+    });
+
+    it('stops at the last episode and when auto-next is off', async () => {
+      const last = setup({ episodeName: 'Tập 3' });
+      const v1 = await join(last.gateway, 'viewer-1');
+      await expect(
+        last.gateway.handleEpisodeEnded(v1.socket, {
+          roomCode: 'AAAA',
+          episodeName: 'Tập 3',
+        }),
+      ).resolves.toMatchObject({ advanced: false });
+      const off = setup({ autoNext: false });
+      const v2 = await join(off.gateway, 'viewer-1');
+      await expect(
+        off.gateway.handleEpisodeEnded(v2.socket, {
+          roomCode: 'AAAA',
+          episodeName: 'Tập 1',
+        }),
+      ).resolves.toMatchObject({ advanced: false });
+      expect(off.movies.getMovieDetail).not.toHaveBeenCalled();
+    });
+
+    it('does not advance when the movie lookup fails', async () => {
+      const { gateway, movies, roomRows } = setup();
+      movies.getMovieDetail.mockRejectedValueOnce(new Error('upstream down'));
+      const viewer = await join(gateway, 'viewer-1');
+      await expect(
+        gateway.handleEpisodeEnded(viewer.socket, {
+          roomCode: 'AAAA',
+          episodeName: 'Tập 1',
+        }),
+      ).resolves.toMatchObject({ ok: true, advanced: false });
+      expect(roomRows.get('AAAA')?.episodeName).toBe('Tập 1');
+    });
+  });
+
+  describe('reactions', () => {
+    it('broadcasts and counts valid reactions', async () => {
+      const { gateway, moments, eventsOf } = setup();
+      const viewer = await join(gateway, 'viewer-1');
+      await expect(
+        gateway.handleReaction(viewer.socket, {
+          roomCode: 'AAAA',
+          emoji: '🔥',
+          time: 42,
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(eventsOf('reaction').at(-1)).toMatchObject({
+        user_id: 'viewer-1',
+        emoji: '🔥',
+        time: 42,
+      });
+      expect(moments.record).toHaveBeenCalledWith({
+        movieSlug: 'movie',
+        episodeName: 'Tập 1',
+        time: 42,
+        emoji: '🔥',
+      });
+    });
+
+    it('rejects unknown emoji, other rooms and spam', async () => {
+      const { gateway, moments } = setup();
+      const viewer = await join(gateway, 'viewer-1');
+      const react = (emoji: string, roomCode = 'AAAA') =>
+        gateway.handleReaction(viewer.socket, { roomCode, emoji, time: 1 });
+      await expect(react('💩')).resolves.toEqual({ ok: false });
+      await expect(react('🔥', 'BBBB')).resolves.toEqual({ ok: false });
+      await expect(react('🔥')).resolves.toEqual({ ok: true });
+      await expect(react('🔥')).resolves.toEqual({ ok: false });
+      await jest.advanceTimersByTimeAsync(300);
+      await expect(react('🔥')).resolves.toEqual({ ok: true });
+      expect(moments.record).toHaveBeenCalledTimes(2);
+    });
   });
 });

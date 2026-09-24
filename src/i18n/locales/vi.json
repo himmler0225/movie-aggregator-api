@@ -42,6 +42,8 @@
     "tooManyCoHosts": "Mỗi phòng có tối đa 5 đồng chủ phòng",
     "cannotTargetSelf": "Bạn đã là chủ phòng",
     "danmakuNotFound": "Không tìm thấy bình luận",
-    "danmakuTooLong": "Bình luận bay tối đa 200 ký tự"
+    "danmakuTooLong": "Bình luận bay tối đa 200 ký tự",
+    "invalidSchedule": "Giờ hẹn phải ở tương lai và trong vòng 7 ngày",
+    "roomNotScheduled": "Phòng này không có lịch hẹn sắp tới"
   }
 }

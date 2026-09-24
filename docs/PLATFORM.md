@@ -29,7 +29,7 @@ src/database/
   repositories/*.repository.ts  # Mỗi model extends BaseRepository
 src/platform/
   auth/          # JWT auth
-  profiles/ favorites/ comments/ danmaku/ ratings/
+  profiles/ favorites/ comments/ danmaku/ moments/ ratings/
   watch-history/ watchlists/ watch-party/ admin/
 ```
 
@@ -49,6 +49,13 @@ src/platform/
 | `GET /api/danmaku/movie/:slug?episode=&from=&to=&limit=` | Bình luận bay của một tập, theo khoảng giây (tối đa 1000) |
 | `POST /api/danmaku` | Bắn bình luận bay: `{ movie_slug, episode_name, playback_time, content }` (≤ 200 ký tự) |
 | `DELETE /api/danmaku/:id` | Xoá bình luận bay của mình |
+| `GET /api/watch-party/rooms/public?status=live\|upcoming` | Phòng công khai đang xem / sắp chiếu |
+| `PUT /api/watch-party/rooms/:roomId/queue` | Sửa hàng chờ tập, bật/tắt auto-next |
+| `PUT` / `DELETE /api/watch-party/rooms/:roomId/reminder` | Bật/tắt nhắc giờ cho phòng hẹn giờ |
+| `GET /api/watch-party/reminders/me` | Các buổi sắp tới đã bật nhắc |
+| `GET /api/moments/emojis` | Emoji reaction hợp lệ |
+| `GET /api/moments/movie/:slug/heatmap?episode=` | Heatmap khoảnh khắc hot của tập |
+| `POST /api/moments/reactions` | Reaction khi xem một mình |
 | `GET /api/admin/*` | Admin (role=admin) |
 
 ## Google OAuth
@@ -67,6 +74,8 @@ Flow: FE → `GET /api/auth/google` → Google → `GET /api/auth/google/callbac
 
 ## WebSocket (Watch Party)
 
+Hướng dẫn tích hợp đầy đủ cho FE (payload, luồng xử lý, checklist): [WATCH_PARTY_FE.md](./WATCH_PARTY_FE.md).
+
 Namespace: `ws://localhost:3001/watch-party` (Socket.io)
 
 | Event (client → server) | Mô tả |
@@ -75,6 +84,9 @@ Namespace: `ws://localhost:3001/watch-party` (Socket.io)
 | `broadcast` | `{ roomCode, event, payload }` — chỉ vào phòng đã `join` |
 | `playback:event` | `{ roomCode, type: PLAY\|PAUSE\|SEEK, time }` — host, đồng chủ phòng, hoặc mọi người nếu `control_mode = everyone` |
 | `viewer:status` | `{ roomCode, time, buffering }` — gửi mỗi ~5 giây và ngay khi bắt đầu/hết buffer |
+| `episode:change` | `{ roomCode, episodeName, serverIndex? }` — người điều khiển đổi tập |
+| `episode:ended` | `{ roomCode, episodeName }` — video hết; server tự sang tập kế nếu `auto_next` |
+| `reaction` | `{ roomCode, emoji, time }` — tính vào heatmap |
 
 | Event (server → client) | Mô tả |
 |-------------------------|-------|
@@ -88,6 +100,10 @@ Namespace: `ws://localhost:3001/watch-party` (Socket.io)
 | `room:control` | `{ host_id, co_host_ids, control_mode, wait_for_buffering }` |
 | `host:changed` | `{ host_id, previous_host_id, username, reason: host_left\|transferred }` |
 | `message:created` | Chat mới (có `playback_time` nếu client gửi kèm) |
+| `room:media` / `episode:changed` | Tập hiện tại + hàng chờ; `episode:changed` kèm `reason: manual\|auto_next` |
+| `reaction` | `{ user_id, username, emoji, time }` |
+| `room:starting` | Phòng hẹn giờ tới giờ bắt đầu |
+| `reminder:due` | Nhắc 5 phút trước giờ hẹn (kênh riêng của user) |
 | `room:closed` | Host đóng phòng |
 
 Hành vi:

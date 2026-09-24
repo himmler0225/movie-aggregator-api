@@ -42,6 +42,8 @@
     "tooManyCoHosts": "A room can have at most 5 co-hosts",
     "cannotTargetSelf": "You are already the host",
     "danmakuNotFound": "Comment not found",
-    "danmakuTooLong": "Danmaku comments can be at most 200 characters"
+    "danmakuTooLong": "Danmaku comments can be at most 200 characters",
+    "invalidSchedule": "Scheduled time must be in the future and within 7 days",
+    "roomNotScheduled": "This room is not scheduled for a future time"
   }
 }

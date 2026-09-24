@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { CommentsRepository } from './comments.repository';
 import { DanmakuCommentsRepository } from './danmaku-comments.repository';
 import { FavoritesRepository } from './favorites.repository';
+import { MomentReactionsRepository } from './moment-reactions.repository';
 import { MovieRatingsRepository } from './movie-ratings.repository';
 import { PageViewsRepository } from './page-views.repository';
 import { ProfilesRepository } from './profiles.repository';
 import { RolePermissionsRepository } from './role-permissions.repository';
 import { RoomMembersRepository } from './room-members.repository';
+import { RoomRemindersRepository } from './room-reminders.repository';
 import { RoomMessagesRepository } from './room-messages.repository';
 import { SearchLogsRepository } from './search-logs.repository';
 import { UserWatchlistsRepository } from './user-watchlists.repository';
@@ -31,6 +33,8 @@ const repositories = [
   RolePermissionsRepository,
   RefreshTokensRepository,
   DanmakuCommentsRepository,
+  MomentReactionsRepository,
+  RoomRemindersRepository,
 ];
 
 @Module({
