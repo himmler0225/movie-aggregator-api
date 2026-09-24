@@ -25,6 +25,7 @@ import type {
   GatewaySocketData,
   JoinWsPayload,
   JwtPayload,
+  PlaybackEventType,
   PlaybackEventWsPayload,
   PlaybackStateMsg,
   PresencePayload,
@@ -44,6 +45,35 @@ const playbackKey = (roomCode: string) => `watchparty:playback:${roomCode}`;
 const playbackSeqKey = (roomCode: string) =>
   `watchparty:playback:seq:${roomCode}`;
 const SEEK_DEBOUNCE_MS = 80;
+const PLAYBACK_TTL_SECONDS = 24 * 3600;
+const PLAYBACK_EVENT_TYPES: ReadonlySet<PlaybackEventType> = new Set([
+  'PLAY',
+  'PAUSE',
+  'SEEK',
+]);
+// Assigns the seq and stores the state in one atomic step, so the stored
+// state always carries the highest seq even when commits race across
+// instances.
+const COMMIT_PLAYBACK_SCRIPT = `
+local seq = redis.call('INCR', KEYS[2])
+local state = cjson.decode(ARGV[1])
+state['seq'] = seq
+redis.call('SET', KEYS[1], cjson.encode(state), 'EX', ARGV[2])
+redis.call('EXPIRE', KEYS[2], ARGV[2])
+return seq
+`;
+
+interface PendingSeek {
+  timer: NodeJS.Timeout;
+  roomId: string;
+  time: number;
+}
+
+interface PlaybackCommand {
+  type: PlaybackEventType;
+  time: number;
+  isPlaying?: boolean;
+}
 
 @WebSocketGateway({
   namespace: '/watch-party',
@@ -61,7 +91,8 @@ export class WatchPartyGateway
   >();
   private readonly playbackByRoom = new Map<string, PlaybackStateMsg>();
   private readonly seqByRoom = new Map<string, number>();
-  private readonly seekTimers = new Map<string, NodeJS.Timeout>();
+  private readonly pendingSeeks = new Map<string, PendingSeek>();
+  private readonly commitQueues = new Map<string, Promise<boolean>>();
   constructor(
     private readonly jwt: JwtService,
     private readonly appConfig: AppConfigService,
@@ -121,20 +152,23 @@ export class WatchPartyGateway
     data.roomCode = roomCode;
     data.presence = body.presence;
     const room = await this.rooms.findByCode(roomCode);
+    data.roomId = room?.id;
     data.isHost = !!room && room.hostId === data.userId;
     await this.setPresence(roomCode, client.id, body.presence);
     client.to(roomCode).emit('presence:join', body.presence);
     await this.emitPresenceSync(roomCode);
-    const playbackState =
-      (await this.getPlaybackState(roomCode)) ??
-      (room
+    const cached = await this.getPlaybackState(roomCode);
+    const playbackState: PlaybackStateMsg | null = cached
+      ? { ...cached, type: cached.isPlaying ? 'PLAY' : 'PAUSE' }
+      : room
         ? {
-            type: room.isPlaying ? ('PLAY' as const) : ('PAUSE' as const),
+            type: room.isPlaying ? 'PLAY' : 'PAUSE',
             time: room.playbackTime,
+            isPlaying: room.isPlaying,
             seq: 0,
             updatedAt: Date.now(),
           }
-        : null);
+        : null;
     if (playbackState) client.emit('playback:sync', playbackState);
     return { ok: true };
   }
@@ -145,8 +179,10 @@ export class WatchPartyGateway
     @MessageBody()
     body: BroadcastWsPayload,
   ) {
-    const roomCode = body.roomCode?.toUpperCase();
-    if (!roomCode || !body.event) return { ok: false };
+    const data = client.data as GatewaySocketData;
+    const roomCode = body?.roomCode?.toUpperCase();
+    if (!roomCode || roomCode !== data.roomCode) return { ok: false };
+    if (!body.event || typeof body.event !== 'string') return { ok: false };
     client.to(roomCode).emit('broadcast', {
       event: body.event,
       payload: body.payload ?? {},
@@ -161,49 +197,140 @@ export class WatchPartyGateway
     body: PlaybackEventWsPayload,
   ) {
     const data = client.data as GatewaySocketData;
-    const roomCode = body.roomCode?.toUpperCase();
-    if (!roomCode || !body.type || !data.isHost) return { ok: false };
-    const time = Number(body.time) || 0;
-    if (body.type === 'SEEK') {
-      const existing = this.seekTimers.get(roomCode);
-      if (existing) clearTimeout(existing);
+    const roomCode = body?.roomCode?.toUpperCase();
+    if (!roomCode || roomCode !== data.roomCode) return { ok: false };
+    if (!data.isHost || !data.roomId) return { ok: false };
+    const type = body.type;
+    const time = Number(body.time);
+    if (!PLAYBACK_EVENT_TYPES.has(type)) return { ok: false };
+    if (!Number.isFinite(time) || time < 0) return { ok: false };
+    const roomId = data.roomId;
+    if (type === 'SEEK') {
+      const pending = this.pendingSeeks.get(roomCode);
+      if (pending) clearTimeout(pending.timer);
       const timer = setTimeout(() => {
-        this.seekTimers.delete(roomCode);
-        void this.commitPlaybackEvent(roomCode, 'SEEK', time);
+        this.pendingSeeks.delete(roomCode);
+        void this.enqueueCommit(roomCode, roomId, { type: 'SEEK', time });
       }, SEEK_DEBOUNCE_MS);
-      this.seekTimers.set(roomCode, timer);
+      this.pendingSeeks.set(roomCode, { timer, roomId, time });
       return { ok: true };
     }
-    const existing = this.seekTimers.get(roomCode);
-    if (existing) {
-      clearTimeout(existing);
-      this.seekTimers.delete(roomCode);
-    }
-    await this.commitPlaybackEvent(roomCode, body.type, time);
-    return { ok: true };
+    this.flushPendingSeek(roomCode);
+    const ok = await this.enqueueCommit(roomCode, roomId, { type, time });
+    return { ok };
+  }
+  /** Applies a playback change made outside the socket (REST) so cached state and viewers follow it. */
+  async applyPlaybackUpdate(
+    roomCode: string,
+    roomId: string,
+    time: number,
+    isPlaying: boolean,
+  ) {
+    const code = roomCode.toUpperCase();
+    this.flushPendingSeek(code);
+    await this.enqueueCommit(code, roomId, {
+      type: isPlaying ? 'PLAY' : 'PAUSE',
+      time,
+      isPlaying,
+    });
+  }
+  private flushPendingSeek(roomCode: string) {
+    const pending = this.pendingSeeks.get(roomCode);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingSeeks.delete(roomCode);
+    void this.enqueueCommit(roomCode, pending.roomId, {
+      type: 'SEEK',
+      time: pending.time,
+    });
+  }
+  // Commits for a room run one at a time, in arrival order.
+  private enqueueCommit(
+    roomCode: string,
+    roomId: string,
+    command: PlaybackCommand,
+  ): Promise<boolean> {
+    const prev = this.commitQueues.get(roomCode) ?? Promise.resolve(true);
+    const run = prev
+      .then(() => this.commitPlaybackEvent(roomCode, roomId, command))
+      .then(
+        () => true,
+        (err: Error) => {
+          this.logger.error(
+            `Playback commit failed for ${roomCode}: ${err.message}`,
+            err.stack,
+          );
+          return false;
+        },
+      );
+    this.commitQueues.set(roomCode, run);
+    void run.then(() => {
+      if (this.commitQueues.get(roomCode) === run) {
+        this.commitQueues.delete(roomCode);
+      }
+    });
+    return run;
   }
   private async commitPlaybackEvent(
     roomCode: string,
-    type: PlaybackStateMsg['type'],
-    time: number,
+    roomId: string,
+    command: PlaybackCommand,
   ) {
-    const seq = await this.nextSeq(roomCode);
-    const state: PlaybackStateMsg = { type, time, seq, updatedAt: Date.now() };
-    await this.setPlaybackState(roomCode, state);
+    const isPlaying =
+      command.isPlaying ??
+      (command.type === 'SEEK'
+        ? await this.currentIsPlaying(roomCode, roomId)
+        : command.type === 'PLAY');
+    const state = await this.storePlaybackState(roomCode, {
+      type: command.type,
+      time: command.time,
+      isPlaying,
+      updatedAt: Date.now(),
+    });
     this.server?.to(roomCode).emit('playback:event', state);
-    const room = await this.rooms.findByCode(roomCode);
-    if (room) {
-      await this.rooms.update(
-        { id: room.id },
-        { playbackTime: time, isPlaying: type !== 'PAUSE' },
-      );
-    }
+    await this.rooms.updateMany(
+      { id: roomId },
+      { playbackTime: command.time, isPlaying },
+    );
+  }
+  private async currentIsPlaying(roomCode: string, roomId: string) {
+    const cached = await this.getPlaybackState(roomCode);
+    if (cached) return cached.isPlaying;
+    const room = await this.rooms.findById(roomId);
+    return room?.isPlaying ?? false;
   }
   emitMessageCreated(roomCode: string, message: RoomMessageView) {
     this.server?.to(roomCode.toUpperCase()).emit('message:created', message);
   }
   emitRoomClosed(roomCode: string) {
-    this.server?.to(roomCode.toUpperCase()).emit('room:closed', {});
+    const code = roomCode.toUpperCase();
+    this.server?.to(code).emit('room:closed', {});
+    void this.clearRoomState(code);
+  }
+  /** Drops cached presence and playback for a room code; never throws. */
+  async clearRoomState(roomCode: string) {
+    const code = roomCode.toUpperCase();
+    const pending = this.pendingSeeks.get(code);
+    if (pending) clearTimeout(pending.timer);
+    this.pendingSeeks.delete(code);
+    this.playbackByRoom.delete(code);
+    this.seqByRoom.delete(code);
+    this.presenceByRoom.delete(code);
+    const client = this.redis.getClient();
+    if (!client) return;
+    try {
+      await client.del(
+        playbackKey(code),
+        playbackSeqKey(code),
+        presenceKey(code),
+      );
+    } catch (err) {
+      const error = err as Error;
+      this.logger.error(
+        `Failed to clear room state for ${code}: ${error.message}`,
+        error.stack,
+      );
+    }
   }
   private async setPresence(
     roomCode: string,
@@ -234,7 +361,12 @@ export class WatchPartyGateway
     }
     const room = this.presenceByRoom.get(roomCode);
     room?.delete(socketId);
-    if (room?.size === 0) this.presenceByRoom.delete(roomCode);
+    if (room?.size === 0) {
+      // Last viewer left: the DB row already holds the latest playback.
+      this.presenceByRoom.delete(roomCode);
+      this.playbackByRoom.delete(roomCode);
+      this.seqByRoom.delete(roomCode);
+    }
   }
   private async listPresence(roomCode: string): Promise<PresencePayload[]> {
     const client = this.redis.getClient();
@@ -259,25 +391,35 @@ export class WatchPartyGateway
     const client = this.redis.getClient();
     if (client) {
       const raw = await client.get(playbackKey(roomCode));
-      return raw ? (JSON.parse(raw) as PlaybackStateMsg) : null;
+      if (!raw) return null;
+      const state = JSON.parse(raw) as Partial<PlaybackStateMsg>;
+      // States written before isPlaying existed can't be trusted; use the DB.
+      return typeof state.isPlaying === 'boolean'
+        ? (state as PlaybackStateMsg)
+        : null;
     }
     return this.playbackByRoom.get(roomCode) ?? null;
   }
-  private async setPlaybackState(roomCode: string, state: PlaybackStateMsg) {
+  private async storePlaybackState(
+    roomCode: string,
+    state: Omit<PlaybackStateMsg, 'seq'>,
+  ): Promise<PlaybackStateMsg> {
     const client = this.redis.getClient();
     if (client) {
-      await client.set(playbackKey(roomCode), JSON.stringify(state));
-      return;
+      const seq = (await client.eval(
+        COMMIT_PLAYBACK_SCRIPT,
+        2,
+        playbackKey(roomCode),
+        playbackSeqKey(roomCode),
+        JSON.stringify(state),
+        PLAYBACK_TTL_SECONDS,
+      )) as number;
+      return { ...state, seq };
     }
-    this.playbackByRoom.set(roomCode, state);
-  }
-  private async nextSeq(roomCode: string): Promise<number> {
-    const client = this.redis.getClient();
-    if (client) {
-      return client.incr(playbackSeqKey(roomCode));
-    }
-    const next = (this.seqByRoom.get(roomCode) ?? 0) + 1;
-    this.seqByRoom.set(roomCode, next);
-    return next;
+    const seq = (this.seqByRoom.get(roomCode) ?? 0) + 1;
+    this.seqByRoom.set(roomCode, seq);
+    const stored = { ...state, seq };
+    this.playbackByRoom.set(roomCode, stored);
+    return stored;
   }
 }

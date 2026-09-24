@@ -50,6 +50,8 @@ export class WatchPartyService {
       pin: input.pin ?? null,
       expiresAt,
     });
+    // A reused code must not inherit the previous room's cached state.
+    await this.gateway.clearRoomState(row.code);
     return { data: { id: row.id }, error: null };
   }
   async fetchRoomByCode(code: string) {
@@ -172,6 +174,12 @@ export class WatchPartyService {
         episodeName: state.episodeName,
         serverIndex: state.serverIndex,
       },
+    );
+    await this.gateway.applyPlaybackUpdate(
+      room.code,
+      roomId,
+      state.playbackTime,
+      state.isPlaying,
     );
     return { error: null };
   }
