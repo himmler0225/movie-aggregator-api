@@ -100,6 +100,7 @@ export interface PlaybackEventWsPayload {
 export interface PlaybackStateMsg {
   type: PlaybackEventType;
   time: number;
+  isPlaying: boolean;
   seq: number;
   updatedAt: number;
 }
@@ -107,6 +108,7 @@ export interface PlaybackStateMsg {
 export interface GatewaySocketData {
   userId?: string;
   roomCode?: string;
+  roomId?: string;
   presence?: PresencePayload;
   isHost?: boolean;
 }
