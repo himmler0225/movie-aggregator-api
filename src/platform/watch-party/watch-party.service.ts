@@ -1,22 +1,45 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { RoomMembersRepository } from '../../database/repositories/room-members.repository';
 import { RoomMessagesRepository } from '../../database/repositories/room-messages.repository';
+import { RoomRemindersRepository } from '../../database/repositories/room-reminders.repository';
 import { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
 import { PermissionsService } from '../auth/permissions.service';
 import { QUERY_LIMITS } from '../../shared/constants';
 import { mapRoomMessage, mapWatchRoom } from '../mappers';
+import { DanmakuService } from '../danmaku/danmaku.service';
+import { DANMAKU_MAX_LENGTH } from '../danmaku/dto/danmaku.dto';
 import type {
   AddRoomMemberInput,
   CreateRoomInput,
   InsertMessageInput,
+  PublicRoomStatus,
+  PublicRoomView,
+  RoomControlState,
   RoomMemberView,
   UpdatePlaybackState,
+  UpdateQueueInput,
+  UpdateRoomSettingsInput,
 } from '../types';
+import {
+  canControlPlayback,
+  MAX_CO_HOSTS,
+  toControlMsg,
+  toControlState,
+} from './room-control';
+import { toMediaState } from './room-media';
 import { WatchPartyGateway } from './watch-party.gateway';
+import { WatchPartyStore } from './watch-party.store';
+
+const MAX_SCHEDULE_AHEAD_MS = 7 * 24 * 3600 * 1000;
+/** How many recent public rooms are checked for live viewers. */
+const PUBLIC_LIVE_SCAN = 200;
+/** A scheduled room still counts as upcoming this long after its start. */
+const UPCOMING_GRACE_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class WatchPartyService {
@@ -26,6 +49,9 @@ export class WatchPartyService {
     private readonly messages: RoomMessagesRepository,
     private readonly gateway: WatchPartyGateway,
     private readonly permissions: PermissionsService,
+    private readonly danmaku: DanmakuService,
+    private readonly reminders: RoomRemindersRepository,
+    private readonly store: WatchPartyStore,
   ) {}
   async createRoom(input: CreateRoomInput) {
     if (
@@ -34,8 +60,17 @@ export class WatchPartyService {
     ) {
       throw new ForbiddenException('platform.privateRoomRequiresPremium');
     }
+    const scheduledAt = input.scheduledAt ?? null;
+    if (scheduledAt) {
+      const ahead = scheduledAt.getTime() - Date.now();
+      if (ahead <= 0 || ahead > MAX_SCHEDULE_AHEAD_MS) {
+        throw new BadRequestException('platform.invalidSchedule');
+      }
+    }
     const hours = input.expiresHours ?? 6;
-    const expiresAt = new Date(Date.now() + hours * 3600000);
+    // A scheduled room lives for its hours after the start, not after creation.
+    const startsAt = scheduledAt?.getTime() ?? Date.now();
+    const expiresAt = new Date(startsAt + hours * 3600000);
     const row = await this.rooms.create({
       code: input.code.toUpperCase(),
       hostId: input.hostId,
@@ -48,8 +83,16 @@ export class WatchPartyService {
       isPlaying: false,
       isPrivate: input.isPrivate ?? false,
       pin: input.pin ?? null,
+      controlMode: input.controlMode ?? 'host',
+      waitForBuffering: input.waitForBuffering ?? true,
+      episodeQueue: input.episodeQueue ?? [],
+      autoNext: input.autoNext ?? true,
+      scheduledAt,
+      title: input.title?.trim() || null,
       expiresAt,
     });
+    // A reused code must not inherit the previous room's cached state.
+    await this.gateway.clearRoomState(row.code);
     return { data: { id: row.id }, error: null };
   }
   async fetchRoomByCode(code: string) {
@@ -67,8 +110,8 @@ export class WatchPartyService {
   async assertCanRead(roomId: string, userId: string) {
     const room = await this.rooms.findById(roomId);
     if (!room) throw new NotFoundException('platform.roomNotFound');
-    if (!room.isPrivate || room.hostId === userId) return;
-    if (await this.isMember(roomId, userId)) return;
+    if (!room.isPrivate || room.hostId === userId) return room;
+    if (await this.isMember(roomId, userId)) return room;
     throw new ForbiddenException('platform.notRoomMember');
   }
   async fetchMembers(
@@ -132,18 +175,38 @@ export class WatchPartyService {
     return true;
   }
   async insertMessage(input: InsertMessageInput) {
-    await this.assertCanRead(input.roomId, input.userId);
+    const room = await this.assertCanRead(input.roomId, input.userId);
+    const type = input.type ?? 'message';
+    const playbackTime =
+      type === 'message' ? (input.playbackTime ?? null) : null;
+    const asDanmaku =
+      !!input.asDanmaku && playbackTime !== null && !!room.episodeName;
+    if (asDanmaku && input.content.trim().length > DANMAKU_MAX_LENGTH) {
+      throw new BadRequestException('platform.danmakuTooLong');
+    }
     const row = await this.messages.create({
       roomId: input.roomId,
       userId: input.userId,
       username: input.username,
-      avatarUrl: input.type === 'message' ? (input.avatarUrl ?? null) : null,
+      avatarUrl: type === 'message' ? (input.avatarUrl ?? null) : null,
       content: input.content,
-      type: input.type ?? 'message',
+      type,
+      playbackTime,
     });
     const mapped = mapRoomMessage(row);
-    const room = await this.rooms.findById(input.roomId);
-    if (room) this.gateway.emitMessageCreated(room.code, mapped);
+    this.gateway.emitMessageCreated(room.code, mapped);
+    if (asDanmaku && playbackTime !== null && room.episodeName) {
+      await this.danmaku.create({
+        userId: input.userId,
+        movieSlug: room.movieSlug,
+        episodeName: room.episodeName,
+        playbackTime,
+        content: input.content,
+        username: input.username,
+        avatarUrl: input.avatarUrl ?? null,
+        roomId: room.id,
+      });
+    }
     return { data: mapped, error: null };
   }
   async fetchMessages(
@@ -157,14 +220,17 @@ export class WatchPartyService {
   }
   async updatePlayback(
     roomId: string,
-    hostId: string,
+    userId: string,
     state: UpdatePlaybackState,
   ) {
     const room = await this.rooms.findById(roomId);
     if (!room) throw new NotFoundException('platform.roomNotFound');
-    if (room.hostId !== hostId)
+    if (!canControlPlayback(toControlState(room), userId))
       throw new ForbiddenException('platform.onlyHostPlayback');
-    await this.rooms.update(
+    const episodeChanged =
+      room.episodeName !== state.episodeName ||
+      room.serverIndex !== state.serverIndex;
+    const updated = await this.rooms.update(
       { id: roomId },
       {
         playbackTime: state.playbackTime,
@@ -173,7 +239,196 @@ export class WatchPartyService {
         serverIndex: state.serverIndex,
       },
     );
+    if (episodeChanged) {
+      await this.gateway.publishMedia(
+        updated.code,
+        toMediaState(updated),
+        'manual',
+      );
+    }
+    await this.gateway.applyPlaybackUpdate(
+      room.code,
+      roomId,
+      state.playbackTime,
+      state.isPlaying,
+    );
     return { error: null };
+  }
+  async updateQueue(roomId: string, userId: string, input: UpdateQueueInput) {
+    const room = await this.rooms.findById(roomId);
+    if (!room) throw new NotFoundException('platform.roomNotFound');
+    if (!canControlPlayback(toControlState(room), userId)) {
+      throw new ForbiddenException('platform.onlyHostPlayback');
+    }
+    const data: Record<string, unknown> = { episodeQueue: input.items };
+    if (input.autoNext !== undefined) data.autoNext = input.autoNext;
+    const updated = await this.rooms.update({ id: roomId }, data);
+    const media = toMediaState(updated);
+    await this.gateway.publishMedia(updated.code, media);
+    return {
+      data: {
+        episode_queue: media.queue,
+        auto_next: media.autoNext,
+      },
+      error: null,
+    };
+  }
+  async listPublicRooms(
+    status: PublicRoomStatus,
+    limit: number,
+  ): Promise<{ data: PublicRoomView[]; server_time: string }> {
+    const now = new Date();
+    const rows =
+      status === 'upcoming'
+        ? await this.rooms.findMany({
+            where: {
+              isPrivate: false,
+              expiresAt: { gt: now },
+              scheduledAt: { gt: new Date(now.getTime() - UPCOMING_GRACE_MS) },
+            },
+            orderBy: { scheduledAt: 'asc' },
+            take: limit,
+          })
+        : await this.rooms.findMany({
+            where: {
+              isPrivate: false,
+              expiresAt: { gt: now },
+              OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: PUBLIC_LIVE_SCAN,
+          });
+    const [viewerCounts, reminderCounts] = await Promise.all([
+      Promise.all(rows.map((r) => this.store.countPresence(r.code))),
+      this.reminders.countByRooms(rows.map((r) => r.id)),
+    ]);
+    let items = rows.map((row, i) => ({
+      ...mapWatchRoom(row),
+      viewer_count: viewerCounts[i],
+      reminder_count: reminderCounts.get(row.id) ?? 0,
+    }));
+    if (status === 'live') {
+      items = items
+        .filter((r) => r.viewer_count > 0)
+        .sort((a, b) => b.viewer_count - a.viewer_count)
+        .slice(0, limit);
+    }
+    return { data: items, server_time: now.toISOString() };
+  }
+  async remindMe(roomId: string, userId: string) {
+    const room = await this.assertCanRead(roomId, userId);
+    if (!room.scheduledAt || room.scheduledAt.getTime() <= Date.now()) {
+      throw new BadRequestException('platform.roomNotScheduled');
+    }
+    await this.reminders.subscribe(roomId, userId);
+    return {
+      data: { room_id: roomId, scheduled_at: room.scheduledAt.toISOString() },
+      error: null,
+    };
+  }
+  async cancelReminder(roomId: string, userId: string) {
+    await this.reminders.unsubscribe(roomId, userId);
+    return { error: null };
+  }
+  async listMyReminders(userId: string) {
+    const now = new Date();
+    const rows = await this.reminders.findForUser(
+      userId,
+      new Date(now.getTime() - UPCOMING_GRACE_MS),
+    );
+    return {
+      data: rows.map((r) => ({
+        room: mapWatchRoom(r.room),
+        notified_at: r.notifiedAt?.toISOString() ?? null,
+      })),
+      server_time: now.toISOString(),
+    };
+  }
+  async updateSettings(
+    roomId: string,
+    userId: string,
+    input: UpdateRoomSettingsInput,
+  ) {
+    await this.requireHostRoom(roomId, userId);
+    const data: Record<string, unknown> = {};
+    if (input.controlMode) data.controlMode = input.controlMode;
+    if (input.waitForBuffering !== undefined) {
+      data.waitForBuffering = input.waitForBuffering;
+    }
+    const updated = await this.rooms.update({ id: roomId }, data);
+    return this.publishControl(updated.code, toControlState(updated));
+  }
+  async addCoHost(roomId: string, userId: string, targetId: string) {
+    const room = await this.requireHostRoom(roomId, userId);
+    if (targetId === room.hostId) {
+      throw new BadRequestException('platform.cannotTargetSelf');
+    }
+    await this.requireMember(roomId, targetId);
+    if (room.coHostIds.includes(targetId)) {
+      return { data: toControlMsg(toControlState(room)), error: null };
+    }
+    if (room.coHostIds.length >= MAX_CO_HOSTS) {
+      throw new BadRequestException('platform.tooManyCoHosts');
+    }
+    const updated = await this.rooms.update(
+      { id: roomId },
+      { coHostIds: [...room.coHostIds, targetId] },
+    );
+    return this.publishControl(updated.code, toControlState(updated));
+  }
+  async removeCoHost(roomId: string, userId: string, targetId: string) {
+    const room = await this.requireHostRoom(roomId, userId);
+    if (!room.coHostIds.includes(targetId)) {
+      return { data: toControlMsg(toControlState(room)), error: null };
+    }
+    const updated = await this.rooms.update(
+      { id: roomId },
+      { coHostIds: room.coHostIds.filter((id) => id !== targetId) },
+    );
+    return this.publishControl(updated.code, toControlState(updated));
+  }
+  async transferHost(roomId: string, userId: string, targetId: string) {
+    const room = await this.requireHostRoom(roomId, userId);
+    if (targetId === userId) {
+      throw new BadRequestException('platform.cannotTargetSelf');
+    }
+    const member = await this.requireMember(roomId, targetId);
+    const coHostIds = room.coHostIds.filter((id) => id !== targetId);
+    // Conditional on the current host so a concurrent auto-transfer wins cleanly.
+    const updated = await this.rooms.updateMany(
+      { id: roomId, hostId: userId },
+      { hostId: targetId, coHostIds },
+    );
+    if (!updated) throw new ForbiddenException('platform.onlyHostSettings');
+    const result = await this.publishControl(room.code, {
+      ...toControlState(room),
+      hostId: targetId,
+      coHostIds,
+    });
+    this.gateway.emitHostChanged(room.code, {
+      hostId: targetId,
+      previousHostId: userId,
+      username: member.username,
+      reason: 'transferred',
+    });
+    return result;
+  }
+  private async requireHostRoom(roomId: string, userId: string) {
+    const room = await this.rooms.findById(roomId);
+    if (!room) throw new NotFoundException('platform.roomNotFound');
+    if (room.hostId !== userId) {
+      throw new ForbiddenException('platform.onlyHostSettings');
+    }
+    return room;
+  }
+  private async requireMember(roomId: string, userId: string) {
+    const member = await this.members.isMember(roomId, userId);
+    if (!member) throw new BadRequestException('platform.targetNotMember');
+    return member;
+  }
+  private async publishControl(roomCode: string, control: RoomControlState) {
+    await this.gateway.publishControl(roomCode, control);
+    return { data: toControlMsg(control), error: null };
   }
   async removeMember(roomId: string, userId: string) {
     await this.members.removeMember(roomId, userId);

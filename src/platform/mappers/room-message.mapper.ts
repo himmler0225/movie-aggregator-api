@@ -11,6 +11,7 @@ export function mapRoomMessage(
     | 'avatarUrl'
     | 'content'
     | 'type'
+    | 'playbackTime'
     | 'createdAt'
   >,
 ): RoomMessageView {
@@ -22,6 +23,7 @@ export function mapRoomMessage(
     avatar_url: m.avatarUrl,
     content: m.content,
     type: m.type,
+    playback_time: m.playbackTime,
     created_at: m.createdAt.toISOString(),
   };
 }

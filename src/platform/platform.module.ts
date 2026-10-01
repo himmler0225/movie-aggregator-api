@@ -3,7 +3,9 @@ import { AdminModule } from './admin/admin.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { CommentsModule } from './comments/comments.module';
+import { DanmakuModule } from './danmaku/danmaku.module';
 import { FavoritesModule } from './favorites/favorites.module';
+import { MomentsModule } from './moments/moments.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { WatchHistoryModule } from './watch-history/watch-history.module';
@@ -15,6 +17,8 @@ import { WatchlistsModule } from './watchlists/watchlists.module';
     AuthModule,
     FavoritesModule,
     CommentsModule,
+    DanmakuModule,
+    MomentsModule,
     ProfilesModule,
     RatingsModule,
     WatchHistoryModule,

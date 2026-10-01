@@ -32,10 +32,18 @@
   },
   "platform": {
     "roomNotFound": "Room not found",
-    "onlyHostPlayback": "Only host can update playback",
+    "onlyHostPlayback": "You don't have playback control in this room",
     "onlyHostClose": "Only host can close room",
     "notRoomMember": "You must join this room to view it",
     "invalidPin": "Incorrect PIN",
-    "privateRoomRequiresPremium": "Private rooms require a premium account"
+    "privateRoomRequiresPremium": "Private rooms require a premium account",
+    "onlyHostSettings": "Only host can change room settings",
+    "targetNotMember": "That user is not a member of this room",
+    "tooManyCoHosts": "A room can have at most 5 co-hosts",
+    "cannotTargetSelf": "You are already the host",
+    "danmakuNotFound": "Comment not found",
+    "danmakuTooLong": "Danmaku comments can be at most 200 characters",
+    "invalidSchedule": "Scheduled time must be in the future and within 7 days",
+    "roomNotScheduled": "This room is not scheduled for a future time"
   }
 }
