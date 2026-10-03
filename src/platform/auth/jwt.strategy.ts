@@ -5,6 +5,7 @@ import { AppConfigService } from '../../config';
 import { ProfilesRepository } from '../../database/repositories/profiles.repository';
 import { ROLE } from '../../shared/constants';
 import type { AuthUser, JwtPayload } from '../types';
+import { assertAccountApproved } from './account-status.util';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -20,6 +21,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
   async validate(payload: JwtPayload): Promise<AuthUser> {
     const profile = await this.profiles.findById(payload.sub);
+    // Revoke access immediately when an admin rejects (or re-pends) an account,
+    // instead of waiting for the access token to expire.
+    assertAccountApproved(profile);
     return {
       id: payload.sub,
       email: payload.email,

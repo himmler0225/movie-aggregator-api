@@ -19,6 +19,7 @@ import {
   ROLE,
 } from '../../shared/constants';
 import type { SessionResponse } from '../types';
+import { assertAccountApproved } from './account-status.util';
 import { hashRefreshToken } from './auth-refresh.util';
 import { GoogleOAuthService } from './google-oauth.service';
 
@@ -186,12 +187,7 @@ export class AuthService {
       throw new UnauthorizedException('auth.invalidCredentials');
     }
     const profile = await this.profiles.findById(data.user.id);
-    if (profile?.status === PROFILE_STATUS.PENDING) {
-      throw new UnauthorizedException('auth.accountPending');
-    }
-    if (profile?.status === PROFILE_STATUS.REJECTED) {
-      throw new UnauthorizedException('auth.accountRejected');
-    }
+    assertAccountApproved(profile);
     return this.sessionFromSupabaseUser(data.user, profile);
   }
 
@@ -226,9 +222,7 @@ export class AuthService {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
     const profile = await this.profiles.findById(stored.userId);
-    if (profile?.status && profile.status !== PROFILE_STATUS.APPROVED) {
-      throw new UnauthorizedException('auth.accountPending');
-    }
+    assertAccountApproved(profile);
     return this.sessionFromSupabaseUser(data.user, profile, {
       issueRefresh: true,
     });
@@ -272,6 +266,7 @@ export class AuthService {
     const { googleUser, frontendRedirect } =
       await this.googleOAuth.exchangeCode(code, state);
     let user = await this.supabase.findUserByEmail(googleUser.email);
+    let isNewUser = false;
     if (!user) {
       const { data, error } = await this.supabase.createUser({
         email: googleUser.email,
@@ -293,6 +288,7 @@ export class AuthService {
         user = existing;
       } else {
         user = data.user;
+        isNewUser = true;
       }
     } else if (googleUser.picture || googleUser.name) {
       await this.supabase.updateUserById(user.id, {
@@ -304,7 +300,7 @@ export class AuthService {
         },
       });
     }
-    const profile = await this.ensureProfile(
+    let profile = await this.ensureProfile(
       user.id,
       googleUser.email,
       googleUser.name ??
@@ -314,7 +310,17 @@ export class AuthService {
         (user.user_metadata?.avatar_url as string | undefined) ??
         (user.user_metadata?.picture as string | undefined) ??
         null,
+      isNewUser ? PROFILE_STATUS.PENDING : PROFILE_STATUS.APPROVED,
     );
+    if (isNewUser && profile.status !== PROFILE_STATUS.PENDING) {
+      // Same as register(): the on_auth_user_created trigger already inserted
+      // an approved profiles row, so force the new Google account to pending.
+      profile = await this.profiles.update(
+        { id: user.id },
+        { status: PROFILE_STATUS.PENDING },
+      );
+    }
+    assertAccountApproved(profile);
     const session = await this.sessionFromSupabaseUser(user, profile);
     return { session, frontendRedirect };
   }

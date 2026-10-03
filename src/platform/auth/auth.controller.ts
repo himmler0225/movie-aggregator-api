@@ -28,6 +28,12 @@ import {
 } from './dto/auth.dto';
 import { RateLimitGuard, RateLimit } from '../common/rate-limit.guard';
 
+/** Approval-gate failures surfaced to the frontend as `/auth/callback?error=…`. */
+const GOOGLE_ACCOUNT_STATUS_ERRORS: Record<string, string> = {
+  'auth.accountPending': 'account_pending',
+  'auth.accountRejected': 'account_rejected',
+};
+
 @ApiTags('Auth')
 @Controller('api/auth')
 export class AuthController {
@@ -142,6 +148,15 @@ export class AuthController {
       }
       return res.redirect(`${frontendRedirect}#${hash.toString()}`);
     } catch (err) {
+      const statusError =
+        err instanceof Error
+          ? GOOGLE_ACCOUNT_STATUS_ERRORS[err.message]
+          : undefined;
+      if (statusError) {
+        return res.redirect(
+          `${this.appConfig.frontendUrl}${FRONTEND_AUTH_CALLBACK_PATH}?error=${statusError}`,
+        );
+      }
       this.logger.error(
         `Google OAuth callback failed: ${err instanceof Error ? err.message : String(err)}`,
         err instanceof Error ? err.stack : undefined,
