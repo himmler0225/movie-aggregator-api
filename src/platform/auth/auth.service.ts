@@ -15,6 +15,7 @@ import { SupabaseService } from '../../database/supabase.service';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   PROFILE_STATUS,
+  REFRESH_TOKEN_REUSE_GRACE_MS,
   REFRESH_TOKEN_TTL_SECONDS,
   ROLE,
 } from '../../shared/constants';
@@ -211,11 +212,14 @@ export class AuthService {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
     const tokenHash = hashRefreshToken(refreshToken.trim());
-    const stored = await this.refreshTokens.findValidByHash(tokenHash);
+    const stored = await this.refreshTokens.findUsableByHash(
+      tokenHash,
+      REFRESH_TOKEN_REUSE_GRACE_MS,
+    );
     if (!stored) {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
-    await this.refreshTokens.revokeByHash(tokenHash);
+    await this.refreshTokens.rotateByHash(tokenHash);
 
     const { data, error } = await this.supabase.getUserById(stored.userId);
     if (error || !data.user?.email) {
@@ -230,11 +234,12 @@ export class AuthService {
 
   async logout(userId: string, refreshToken?: string): Promise<{ ok: true }> {
     if (refreshToken?.trim()) {
-      await this.refreshTokens.revokeByHash(
+      await this.refreshTokens.deleteForLogout(
+        userId,
         hashRefreshToken(refreshToken.trim()),
       );
     } else {
-      await this.refreshTokens.revokeAllForUser(userId);
+      await this.refreshTokens.deleteAllForUser(userId);
     }
     return { ok: true };
   }
@@ -244,7 +249,7 @@ export class AuthService {
       throw new BadRequestException('auth.passwordTooShort');
     const { error } = await this.supabase.updateUserById(userId, { password });
     if (error) throw new BadRequestException(error.message);
-    await this.refreshTokens.revokeAllForUser(userId);
+    await this.refreshTokens.deleteAllForUser(userId);
   }
 
   async requestPasswordReset(email: string): Promise<void> {
