@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
@@ -220,7 +219,13 @@ export class MoviesController {
     res: Response,
   ) {
     const { data, contentType } = await this.movies.getImageWebp(url);
-    res.set('Content-Type', contentType);
+    res.set({
+      'Content-Type': contentType,
+      // Poster URLs are dated upload paths that never change; without this every view
+      // re-fetched the image through the API and upstream.
+      'Cache-Control': 'public, max-age=604800, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
     res.send(data);
   }
 

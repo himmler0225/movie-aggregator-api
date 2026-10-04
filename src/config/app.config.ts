@@ -38,6 +38,7 @@ function resolveJwtSecret(): string {
 export function loadAppConfig(): AppConfig {
   return {
     port: parseInt(process.env.PORT ?? '3001', 10),
+    trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10),
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
     jwtSecret: resolveJwtSecret(),
     frontendUrl: stripTrailingSlash(

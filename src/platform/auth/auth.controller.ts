@@ -109,9 +109,9 @@ export class AuthController {
     @Query('redirect_uri') redirectUri: string | undefined,
     @Res() res: Response,
   ) {
-    const feRedirect =
-      redirectUri?.trim() ||
-      `${this.appConfig.frontendUrl}${FRONTEND_AUTH_CALLBACK_PATH}`;
+    const feRedirect = this.auth.isAllowedFrontendRedirect(redirectUri)
+      ? redirectUri.trim()
+      : `${this.appConfig.frontendUrl}${FRONTEND_AUTH_CALLBACK_PATH}`;
     try {
       const { url } = this.auth.getGoogleAuthUrl(feRedirect);
       return res.redirect(url);

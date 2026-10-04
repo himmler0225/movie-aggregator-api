@@ -28,11 +28,12 @@ type Bucket = {
 
 const localBuckets = new Map<string, Bucket>();
 
+/**
+ * req.ip honours Express "trust proxy" (set in main.ts), i.e. the address our own nginx
+ * appended. The first X-Forwarded-For entry is client-controlled: trusting it let anyone
+ * bypass every limit (login brute force included) by sending a random header.
+ */
 function clientKey(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
-  }
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 

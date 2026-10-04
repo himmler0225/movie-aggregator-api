@@ -260,6 +260,10 @@ export class AuthService {
     if (error) throw new BadRequestException(error.message);
   }
 
+  isAllowedFrontendRedirect(url?: string): url is string {
+    return this.googleOAuth.isAllowedFrontendRedirect(url);
+  }
+
   getGoogleAuthUrl(frontendRedirect?: string) {
     return this.googleOAuth.buildAuthorizationUrl(frontendRedirect);
   }

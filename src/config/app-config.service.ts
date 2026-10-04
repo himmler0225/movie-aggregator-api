@@ -19,6 +19,9 @@ export class AppConfigService {
   get port() {
     return this.values.port;
   }
+  get trustProxyHops() {
+    return this.values.trustProxyHops;
+  }
   get corsOrigins() {
     return this.values.corsOrigins;
   }

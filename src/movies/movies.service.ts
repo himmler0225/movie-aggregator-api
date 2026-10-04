@@ -121,9 +121,14 @@ export class MoviesService {
   getAllYears(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
     return this.fetchAllYears(pinnedSource ?? 'vsmov');
   }
-  getImageWebp(imageUrl: string) {
+  async getImageWebp(imageUrl: string) {
     assertPhimimgUrl(imageUrl);
-    return this.upstream.getBinary(imageUrl, 'image');
+    const image = await this.upstream.getBinary(imageUrl, 'image');
+    // Never relay non-image upstream content (e.g. an HTML error page) from our origin.
+    if (!image.contentType.toLowerCase().startsWith('image/')) {
+      throw new AppError(AppErrorCode.UPSTREAM_ERROR);
+    }
+    return image;
   }
   resolvePinnedSource(value?: string): SourceKey | undefined {
     if (!value) return undefined;

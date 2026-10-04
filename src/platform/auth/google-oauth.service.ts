@@ -33,6 +33,29 @@ export class GoogleOAuthService {
       if (value.expiresAt < now) this.states.delete(key);
     }
   }
+  /**
+   * The callback appends the access/refresh tokens to this URL, so only our own frontends
+   * (FRONTEND_URL and CORS_ORIGINS) may receive them — anything else is an open redirect
+   * that hands a victim's session to the attacker's site.
+   */
+  isAllowedFrontendRedirect(url?: string): url is string {
+    if (!url?.trim()) return false;
+    const originOf = (value: string) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+          ? parsed.origin
+          : null;
+      } catch {
+        return null;
+      }
+    };
+    const origin = originOf(url.trim());
+    if (!origin) return false;
+    return [this.appConfig.frontendUrl, ...this.appConfig.corsOrigins].some(
+      (allowed) => originOf(allowed) === origin,
+    );
+  }
   buildAuthorizationUrl(frontendRedirect?: string): {
     url: string;
   } {
@@ -41,9 +64,9 @@ export class GoogleOAuthService {
     }
     this.cleanupStates();
     const state = randomBytes(OAUTH_STATE_BYTES).toString('hex');
-    const redirect =
-      frontendRedirect?.trim() ||
-      `${this.appConfig.frontendUrl}${FRONTEND_AUTH_CALLBACK_PATH}`;
+    const redirect = this.isAllowedFrontendRedirect(frontendRedirect)
+      ? frontendRedirect.trim()
+      : `${this.appConfig.frontendUrl}${FRONTEND_AUTH_CALLBACK_PATH}`;
     this.states.set(state, {
       frontendRedirect: redirect,
       expiresAt: Date.now() + this.stateTtlMs,
