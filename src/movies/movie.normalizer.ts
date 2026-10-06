@@ -14,8 +14,18 @@ import { buildSourceResponse } from './sources/source-response.util';
 
 type AnyObj = Record<string, unknown>;
 
+/**
+ * Some list payloads carry foreign image URLs with their host cut off, e.g.
+ * "danviet.vn/files/…" for https://i.ex-cdn.com/danviet.vn/files/…. The real host can't
+ * be recovered and prefixing the source CDN gives a 404, so drop it: clients then fall back
+ * to the other image (poster_url || thumb_url).
+ */
+const TRUNCATED_FOREIGN_URL_PATTERN =
+  /^(?!uploads\/)[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}\//i;
+
 const toAbsoluteImg = (raw: string | undefined, source: SourceKey): string => {
   if (!raw) return '';
+  if (TRUNCATED_FOREIGN_URL_PATTERN.test(raw)) return '';
   return raw.startsWith('http')
     ? raw
     : MOVIE_SOURCES[source].imgBase + raw.replace(LEADING_SLASH_PATTERN, '');
