@@ -22,6 +22,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
     const locale = this.i18n.resolveLocale(request.headers['accept-language']);
+    // Route-level @Header('Cache-Control') also lands on error responses; never
+    // let a browser or proxy keep serving a transient 404/502.
+    if (!response.headersSent) response.setHeader('Cache-Control', 'no-store');
+    // Route-level @Header('Cache-Control') also lands on error responses; never
+    // let a browser or proxy keep serving a transient 404/502.
+    if (!response.headersSent) response.setHeader('Cache-Control', 'no-store');
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();

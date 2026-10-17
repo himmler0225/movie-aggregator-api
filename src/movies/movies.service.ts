@@ -18,9 +18,9 @@ import {
   assertPhimimgUrl,
   assertValidYear,
   buildUrl,
-  TtlCache,
 } from '../shared/utils';
 import { UpstreamClientService } from '../upstream/upstream-client.service';
+import { MovieCacheService } from './movie-cache.service';
 import { buildUpstreamListParams, resolvePagination } from './filter.util';
 import {
   normalizeDetailResponse,
@@ -58,8 +58,10 @@ export const MOVIE_CACHE_TTL = {
 @Injectable()
 export class MoviesService {
   private readonly logger = AppLogger.create(MoviesService.name);
-  private readonly cache = new TtlCache<unknown>(1000);
-  constructor(private readonly upstream: UpstreamClientService) {}
+  constructor(
+    private readonly upstream: UpstreamClientService,
+    private readonly cache: MovieCacheService = new MovieCacheService(),
+  ) {}
   getNewMovies(
     page = 1,
     pinnedSource?: SourceKey,
@@ -227,7 +229,7 @@ export class MoviesService {
   ): Promise<T> {
     const key = `${context}:${pinnedSource ?? '*'}:${JSON.stringify(args)}`;
 
-    return this.cache.getOrLoad(key, ttlMs, load) as Promise<T>;
+    return this.cache.getOrLoad(key, ttlMs, load);
   }
   private async withFallback<
     T extends {

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { UpstreamClientService } from '../upstream/upstream-client.service';
 import { MoviesController } from './movies.controller';
+import { MovieCacheService } from './movie-cache.service';
 import { MoviesService } from './movies.service';
 
 @Module({
@@ -11,7 +12,7 @@ import { MoviesService } from './movies.service';
     }),
   ],
   controllers: [MoviesController],
-  providers: [UpstreamClientService, MoviesService],
+  providers: [UpstreamClientService, MovieCacheService, MoviesService],
   exports: [MoviesService],
 })
 export class MoviesModule {}

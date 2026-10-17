@@ -22,7 +22,16 @@ export class PermissionsService implements OnModuleInit, OnModuleDestroy {
     await this.reloadLocal();
     this.subscriber = this.redis.createSubscriber();
     if (this.subscriber) {
-      await this.subscriber.subscribe(REDIS_RELOAD_CHANNEL);
+      // Not awaited: an unreachable Redis must not abort boot (the failed
+      // subscribe rejected out of onModuleInit and killed the process). The
+      // periodic refresh below covers the gap until Redis is back.
+      this.subscriber
+        .subscribe(REDIS_RELOAD_CHANNEL)
+        .catch((err: Error) =>
+          this.logger.warn(
+            `Permission reload channel unavailable: ${err.message}`,
+          ),
+        );
       this.subscriber.on('message', (channel) => {
         if (channel === REDIS_RELOAD_CHANNEL) void this.reloadLocal();
       });

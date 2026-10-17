@@ -33,7 +33,17 @@ export class RedisService implements OnModuleDestroy {
   }
   createSubscriber(): Redis | null {
     if (!this.appConfig.isRedisConfigured) return null;
-    return new Redis(this.appConfig.redisUrl);
+    // Subscriber commands (incl. socket.io adapter's un-caught subscribe calls)
+    // wait for a reconnect instead of rejecting — a rejection there crashed the
+    // process whenever Redis was briefly unreachable.
+    const subscriber = new Redis(this.appConfig.redisUrl, {
+      maxRetriesPerRequest: null,
+    });
+    // Without a listener ioredis reports every reconnect attempt as unhandled.
+    subscriber.on('error', (err) =>
+      this.logger.warn(`Redis subscriber error: ${err.message}`),
+    );
+    return subscriber;
   }
   async onModuleDestroy() {
     await this.client?.quit();
