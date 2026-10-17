@@ -1,4 +1,5 @@
 import './load-env';
+import { initSentry } from './infra/sentry/sentry';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -8,6 +9,8 @@ import { setupSwagger, SWAGGER_PATH } from './config/swagger.config';
 import { HttpLoggingInterceptor } from './shared/interceptors';
 import { AppLogger } from './shared/logger';
 import { logRegisteredRoutes } from './shared/utils/log-routes.util';
+
+initSentry();
 
 async function bootstrap() {
   const logger = AppLogger.create('Bootstrap');

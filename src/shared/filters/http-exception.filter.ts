@@ -7,6 +7,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
+import { captureUnexpected } from '../../infra/sentry/sentry';
 import { I18nService, type SupportedLocale } from '../../i18n';
 import { AppErrorCode } from '../errors';
 import { AppLogger } from '../logger';
@@ -39,6 +40,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
     this.logger.unexpected(exception);
+    captureUnexpected(exception, {
+      method: request.method,
+      path: (request.route as { path?: string } | undefined)?.path,
+    });
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: this.i18n.translate(`errors.${AppErrorCode.INTERNAL_ERROR}`, {
         locale,
