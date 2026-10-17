@@ -181,3 +181,20 @@ describe('MoviesService VSMOV source', () => {
     expect(getJson).toHaveBeenCalledWith('https://vsmov.com/api/nam', 'meta');
   });
 });
+
+describe('MoviesService caching', () => {
+  it('reuses a list response for identical requests and keys by filters', async () => {
+    const getJson = jest.fn().mockResolvedValue(listResponse);
+    const service = new MoviesService({
+      getJson,
+      getBinary: jest.fn(),
+    } as unknown as UpstreamClientService);
+
+    await service.getMoviesByType('phim-bo', { page: 1, limit: 24 }, 'vsmov');
+    await service.getMoviesByType('phim-bo', { page: 1, limit: 24 }, 'vsmov');
+    expect(getJson).toHaveBeenCalledTimes(1);
+
+    await service.getMoviesByType('phim-bo', { page: 2, limit: 24 }, 'vsmov');
+    expect(getJson).toHaveBeenCalledTimes(2);
+  });
+});

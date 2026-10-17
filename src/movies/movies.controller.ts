@@ -2,6 +2,7 @@ import {
   applyDecorators,
   Controller,
   Get,
+  Header,
   Param,
   Query,
   Res,
@@ -38,6 +39,12 @@ const ApiMovieErrors = () =>
     ApiGatewayTimeoutResponse({ type: ErrorResponseDto }),
   );
 
+// Lists/detail are public and identical for every viewer; let browsers and any
+// proxy reuse them briefly. The service-level TTL cache covers the origin side.
+const LIST_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300';
+const DETAIL_CACHE_CONTROL = 'public, max-age=120, stale-while-revalidate=600';
+const META_CACHE_CONTROL = 'public, max-age=3600, stale-while-revalidate=86400';
+
 const UNIFIED_RESPONSE_DESC =
   'Envelope: `{ source: "kkphim"|"ophim"|"vsmov", data: T, pagination? }`';
 
@@ -48,6 +55,7 @@ export class MoviesController {
   constructor(private readonly movies: MoviesService) {}
 
   @Get('new')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({
     summary: 'Recently updated movies',
     description:
@@ -66,6 +74,7 @@ export class MoviesController {
   }
 
   @Get('type/:type')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({ summary: 'List movies by type' })
   @ApiParam({ name: 'type', enum: MOVIE_TYPE_API_ENUM, example: 'phim-bo' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
@@ -84,6 +93,7 @@ export class MoviesController {
   }
 
   @Get('search')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({ summary: 'Search movies' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
   @ApiMovieErrors()
@@ -98,6 +108,7 @@ export class MoviesController {
   }
 
   @Get('genres/:slug')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({ summary: 'Movies by genre' })
   @ApiParam({ name: 'slug', example: 'hanh-dong' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
@@ -116,6 +127,7 @@ export class MoviesController {
   }
 
   @Get('countries/:slug')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({ summary: 'Movies by country' })
   @ApiParam({ name: 'slug', example: 'han-quoc' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
@@ -134,6 +146,7 @@ export class MoviesController {
   }
 
   @Get('years/:year')
+  @Header('Cache-Control', LIST_CACHE_CONTROL)
   @ApiOperation({ summary: 'Movies by year' })
   @ApiParam({ name: 'year', example: '2024' })
   @ApiOkResponse({ description: UNIFIED_RESPONSE_DESC })
@@ -152,6 +165,7 @@ export class MoviesController {
   }
 
   @Get('meta/genres')
+  @Header('Cache-Control', META_CACHE_CONTROL)
   @ApiOperation({ summary: 'Metadata — all genres' })
   @ApiQuery({
     name: 'source',
@@ -169,6 +183,7 @@ export class MoviesController {
   }
 
   @Get('meta/countries')
+  @Header('Cache-Control', META_CACHE_CONTROL)
   @ApiOperation({ summary: 'Metadata — all countries' })
   @ApiQuery({
     name: 'source',
@@ -186,6 +201,7 @@ export class MoviesController {
   }
 
   @Get('meta/years')
+  @Header('Cache-Control', META_CACHE_CONTROL)
   @ApiOperation({ summary: 'Metadata — all VSMOV years' })
   @ApiQuery({
     name: 'source',
@@ -230,6 +246,7 @@ export class MoviesController {
   }
 
   @Get(':slug')
+  @Header('Cache-Control', DETAIL_CACHE_CONTROL)
   @ApiOperation({ summary: 'Movie detail' })
   @ApiParam({ name: 'slug', example: 'one-piece' })
   @ApiQuery({

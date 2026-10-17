@@ -18,6 +18,7 @@ import {
   assertPhimimgUrl,
   assertValidYear,
   buildUrl,
+  TtlCache,
 } from '../shared/utils';
 import { UpstreamClientService } from '../upstream/upstream-client.service';
 import { buildUpstreamListParams, resolvePagination } from './filter.util';
@@ -44,16 +45,34 @@ import type {
   VsmovMetadataResponse,
 } from './sources/vsmov.types';
 
+const MINUTE = 60_000;
+
+/** Upstream lists refresh every few minutes; detail/meta change far less often. */
+export const MOVIE_CACHE_TTL = {
+  list: 3 * MINUTE,
+  search: 2 * MINUTE,
+  detail: 10 * MINUTE,
+  meta: 60 * MINUTE,
+} as const;
+
 @Injectable()
 export class MoviesService {
   private readonly logger = AppLogger.create(MoviesService.name);
+  private readonly cache = new TtlCache<unknown>(1000);
   constructor(private readonly upstream: UpstreamClientService) {}
   getNewMovies(
     page = 1,
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('getNewMovies', pinnedSource, (source) =>
-      this.fetchNewMovies(source, page),
+    return this.cached(
+      'getNewMovies',
+      MOVIE_CACHE_TTL.list,
+      [page],
+      pinnedSource,
+      () =>
+        this.withFallback('getNewMovies', pinnedSource, (source) =>
+          this.fetchNewMovies(source, page),
+        ),
     );
   }
   getMoviesByType(
@@ -61,24 +80,45 @@ export class MoviesService {
     filters: MovieFilterParams = {},
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('getMoviesByType', pinnedSource, (source) =>
-      this.fetchMoviesByType(source, type, filters),
+    return this.cached(
+      'getMoviesByType',
+      MOVIE_CACHE_TTL.list,
+      [type, filters],
+      pinnedSource,
+      () =>
+        this.withFallback('getMoviesByType', pinnedSource, (source) =>
+          this.fetchMoviesByType(source, type, filters),
+        ),
     );
   }
   getMovieDetail(
     slug: string,
     pinnedSource?: SourceKey,
   ): Promise<MovieDetailApiResponse> {
-    return this.withFallback('getMovieDetail', pinnedSource, (source) =>
-      this.fetchMovieDetail(source, slug),
+    return this.cached(
+      'getMovieDetail',
+      MOVIE_CACHE_TTL.detail,
+      [slug],
+      pinnedSource,
+      () =>
+        this.withFallback('getMovieDetail', pinnedSource, (source) =>
+          this.fetchMovieDetail(source, slug),
+        ),
     );
   }
   searchMovies(
     params: SearchParams,
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('searchMovies', pinnedSource, (source) =>
-      this.fetchSearchMovies(source, params),
+    return this.cached(
+      'searchMovies',
+      MOVIE_CACHE_TTL.search,
+      [params],
+      pinnedSource,
+      () =>
+        this.withFallback('searchMovies', pinnedSource, (source) =>
+          this.fetchSearchMovies(source, params),
+        ),
     );
   }
   getByGenre(
@@ -86,8 +126,15 @@ export class MoviesService {
     filters: MovieFilterParams = {},
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('getByGenre', pinnedSource, (source) =>
-      this.fetchByGenre(source, slug, filters),
+    return this.cached(
+      'getByGenre',
+      MOVIE_CACHE_TTL.list,
+      [slug, filters],
+      pinnedSource,
+      () =>
+        this.withFallback('getByGenre', pinnedSource, (source) =>
+          this.fetchByGenre(source, slug, filters),
+        ),
     );
   }
   getByCountry(
@@ -95,8 +142,15 @@ export class MoviesService {
     filters: MovieFilterParams = {},
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('getByCountry', pinnedSource, (source) =>
-      this.fetchByCountry(source, slug, filters),
+    return this.cached(
+      'getByCountry',
+      MOVIE_CACHE_TTL.list,
+      [slug, filters],
+      pinnedSource,
+      () =>
+        this.withFallback('getByCountry', pinnedSource, (source) =>
+          this.fetchByCountry(source, slug, filters),
+        ),
     );
   }
   getByYear(
@@ -104,22 +158,49 @@ export class MoviesService {
     filters: MovieFilterParams = {},
     pinnedSource?: SourceKey,
   ): Promise<MovieListApiResponse> {
-    return this.withFallback('getByYear', pinnedSource, (source) =>
-      this.fetchByYear(source, year, filters),
+    return this.cached(
+      'getByYear',
+      MOVIE_CACHE_TTL.list,
+      [year, filters],
+      pinnedSource,
+      () =>
+        this.withFallback('getByYear', pinnedSource, (source) =>
+          this.fetchByYear(source, year, filters),
+        ),
     );
   }
   getAllGenres(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
-    return this.withFallback('getAllGenres', pinnedSource, (source) =>
-      this.fetchAllGenres(source),
+    return this.cached(
+      'getAllGenres',
+      MOVIE_CACHE_TTL.meta,
+      [],
+      pinnedSource,
+      () =>
+        this.withFallback('getAllGenres', pinnedSource, (source) =>
+          this.fetchAllGenres(source),
+        ),
     );
   }
   getAllCountries(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
-    return this.withFallback('getAllCountries', pinnedSource, (source) =>
-      this.fetchAllCountries(source),
+    return this.cached(
+      'getAllCountries',
+      MOVIE_CACHE_TTL.meta,
+      [],
+      pinnedSource,
+      () =>
+        this.withFallback('getAllCountries', pinnedSource, (source) =>
+          this.fetchAllCountries(source),
+        ),
     );
   }
   getAllYears(pinnedSource?: SourceKey): Promise<MetadataListApiResponse> {
-    return this.fetchAllYears(pinnedSource ?? 'vsmov');
+    return this.cached(
+      'getAllYears',
+      MOVIE_CACHE_TTL.meta,
+      [],
+      pinnedSource,
+      () => this.fetchAllYears(pinnedSource ?? 'vsmov'),
+    );
   }
   async getImageWebp(imageUrl: string) {
     assertPhimimgUrl(imageUrl);
@@ -136,6 +217,17 @@ export class MoviesService {
       throw new AppError(AppErrorCode.BAD_REQUEST, 'Invalid source.');
     }
     return value;
+  }
+  private cached<T>(
+    context: string,
+    ttlMs: number,
+    args: unknown[],
+    pinnedSource: SourceKey | undefined,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${context}:${pinnedSource ?? '*'}:${JSON.stringify(args)}`;
+
+    return this.cache.getOrLoad(key, ttlMs, load) as Promise<T>;
   }
   private async withFallback<
     T extends {
