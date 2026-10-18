@@ -11,6 +11,7 @@ import { RoomMembersRepository } from './room-members.repository';
 import { RoomRemindersRepository } from './room-reminders.repository';
 import { RoomMessagesRepository } from './room-messages.repository';
 import { SearchLogsRepository } from './search-logs.repository';
+import { UserPreferencesRepository } from './user-preferences.repository';
 import { UserWatchlistsRepository } from './user-watchlists.repository';
 import { WatchEventsRepository } from './watch-events.repository';
 import { WatchHistoryRepository } from './watch-history.repository';
@@ -35,6 +36,7 @@ const repositories = [
   DanmakuCommentsRepository,
   MomentReactionsRepository,
   RoomRemindersRepository,
+  UserPreferencesRepository,
 ];
 
 @Module({

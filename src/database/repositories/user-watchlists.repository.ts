@@ -20,8 +20,12 @@ export class UserWatchlistsRepository extends BaseRepository<UserWatchlist> {
       createdAt: Date;
     }[],
   ) {
-    return this.prisma.$transaction(
-      lists.map((list) =>
+    // Replace semantics: lists missing from the payload were deleted client-side.
+    return this.prisma.$transaction([
+      this.prisma.userWatchlist.deleteMany({
+        where: { userId, listKey: { notIn: lists.map((l) => l.id) } },
+      }),
+      ...lists.map((list) =>
         this.prisma.userWatchlist.upsert({
           where: { userId_listKey: { userId, listKey: list.id } },
           create: {
@@ -37,6 +41,6 @@ export class UserWatchlistsRepository extends BaseRepository<UserWatchlist> {
           },
         }),
       ),
-    );
+    ]);
   }
 }

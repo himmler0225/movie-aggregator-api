@@ -10,6 +10,7 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { WatchHistoryModule } from './watch-history/watch-history.module';
 import { WatchPartyModule } from './watch-party/watch-party.module';
+import { PreferencesModule } from './preferences/preferences.module';
 import { WatchlistsModule } from './watchlists/watchlists.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { WatchlistsModule } from './watchlists/watchlists.module';
     RatingsModule,
     WatchHistoryModule,
     WatchlistsModule,
+    PreferencesModule,
     WatchPartyModule,
     AdminModule,
     AnalyticsModule,

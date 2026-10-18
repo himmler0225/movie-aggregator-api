@@ -93,6 +93,14 @@ model UserWatchlist {
   @@map("user_watchlists")
 }
 
+model UserPreference {
+  userId    String   @id @map("user_id") @db.Uuid
+  data      Json     @default("{}")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("user_preferences")
+}
+
 model WatchRoom {
   id               String    @id @default(uuid()) @db.Uuid
   code             String    @unique

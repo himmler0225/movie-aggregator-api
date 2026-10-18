@@ -22,7 +22,6 @@ export class WatchlistsService {
       createdAt: number;
     }[],
   ) {
-    if (!lists.length) return { ok: true };
     await this.watchlists.upsertMany(
       userId,
       lists.map((list) => ({
