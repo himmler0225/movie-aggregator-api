@@ -45,6 +45,9 @@ function setup(opts: {
       .fn()
       .mockResolvedValue({ data: { user: SUPABASE_USER }, error: null }),
     updateUserById: jest.fn().mockResolvedValue({ error: null }),
+    getUserById: jest
+      .fn()
+      .mockResolvedValue({ data: { user: SUPABASE_USER }, error: null }),
   };
   const profiles = {
     findById: jest.fn().mockResolvedValue(opts.existingProfile),
@@ -57,7 +60,15 @@ function setup(opts: {
       ),
     ),
   };
-  const refreshTokens = { create: jest.fn().mockResolvedValue(undefined) };
+  const refreshTokens = {
+    create: jest.fn().mockResolvedValue(undefined),
+    findUsableByHash: jest.fn().mockResolvedValue({
+      id: 'tok-2',
+      parentId: 'tok-1',
+      userId: SUPABASE_USER.id,
+    }),
+    retireAncestors: jest.fn().mockResolvedValue({ count: 1 }),
+  };
   const jwt = { sign: jest.fn().mockReturnValue('access-token') };
   const googleOAuth = {
     exchangeCode: jest.fn().mockResolvedValue({
@@ -73,7 +84,7 @@ function setup(opts: {
     googleOAuth as unknown as GoogleOAuthService,
     {} as AppConfigService,
   );
-  return { service, profiles };
+  return { service, profiles, supabase, refreshTokens };
 }
 
 describe('AuthService.handleGoogleCallback approval gate', () => {
@@ -149,5 +160,49 @@ describe('assertAccountApproved', () => {
     expect(() => assertAccountApproved({ status })).toThrow(
       new UnauthorizedException(key),
     );
+  });
+});
+
+describe('AuthService.refresh rotation', () => {
+  const approved = () =>
+    setup({
+      existingUser: true,
+      existingProfile: profileRow(PROFILE_STATUS.APPROVED),
+    });
+
+  it('issues a child of the presented token and retires only its ancestors', async () => {
+    const { service, refreshTokens } = approved();
+    const session = await service.refresh('raw-refresh-token');
+    expect(session.refresh_token).toEqual(expect.any(String));
+    expect(refreshTokens.create).toHaveBeenCalledWith(
+      expect.objectContaining({ parentId: 'tok-2' }),
+    );
+    expect(refreshTokens.retireAncestors).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'tok-2', parentId: 'tok-1' }),
+    );
+  });
+
+  it('answers 503 (not 401) when Supabase is unreachable, keeping the token', async () => {
+    const { service, supabase, refreshTokens } = approved();
+    supabase.getUserById.mockResolvedValueOnce({
+      data: { user: null },
+      error: { status: 500, message: 'fetch failed' },
+    });
+    await expect(service.refresh('raw-refresh-token')).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(refreshTokens.retireAncestors).not.toHaveBeenCalled();
+    expect(refreshTokens.create).not.toHaveBeenCalled();
+  });
+
+  it('answers 401 for a deleted account', async () => {
+    const { service, supabase } = approved();
+    supabase.getUserById.mockResolvedValueOnce({
+      data: { user: null },
+      error: { status: 404, message: 'User not found' },
+    });
+    await expect(service.refresh('raw-refresh-token')).rejects.toMatchObject({
+      status: 401,
+    });
   });
 });

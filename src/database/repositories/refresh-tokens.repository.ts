@@ -21,22 +21,40 @@ export class RefreshTokensRepository extends BaseRepository<RefreshToken> {
     });
   }
 
-  /** Soft revoke on rotation; keeps the first revokedAt so the grace window never extends. */
-  rotateByHash(tokenHash: string) {
-    return this.updateMany(
-      { tokenHash, revokedAt: null },
-      { revokedAt: new Date() },
-    );
+  /**
+   * `token` was just used, which proves the client received it: its parent and any
+   * siblings (replacements whose response never arrived, or a concurrent refresh) are
+   * now obsolete.
+   */
+  retireAncestors(token: Pick<RefreshToken, 'id' | 'parentId'>) {
+    if (!token.parentId) return Promise.resolve({ count: 0 });
+    return this.deleteMany({
+      OR: [
+        { id: token.parentId },
+        { parentId: token.parentId, id: { not: token.id } },
+      ],
+    });
   }
 
   /**
-   * Hard revoke (logout): delete the token plus the user's rotated tokens, which would
-   * otherwise stay usable for the rotation grace window.
+   * Hard revoke (logout) of one device: the token, its whole rotation chain (parent
+   * and replacements that are still usable) and the user's legacy soft-revoked rows,
+   * which would otherwise stay usable for the rotation grace window.
    */
-  deleteForLogout(userId: string, tokenHash: string) {
+  async deleteForLogout(userId: string, tokenHash: string) {
+    const token = await this.findOne({ userId, tokenHash });
+    const chain = token
+      ? [
+          { id: token.id },
+          { parentId: token.id },
+          ...(token.parentId
+            ? [{ id: token.parentId }, { parentId: token.parentId }]
+            : []),
+        ]
+      : [];
     return this.deleteMany({
       userId,
-      OR: [{ tokenHash }, { revokedAt: { not: null } }],
+      OR: [{ tokenHash }, { revokedAt: { not: null } }, ...chain],
     });
   }
 

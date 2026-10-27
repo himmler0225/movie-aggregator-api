@@ -28,7 +28,9 @@
     "adminRequired": "Admin access required",
     "emailAlreadyRegistered": "Email already registered",
     "accountPending": "Your account is awaiting admin approval",
-    "accountRejected": "Your registration request was rejected"
+    "accountRejected": "Your registration request was rejected",
+    "invalidRefreshToken": "Session expired, please sign in again",
+    "refreshUnavailable": "Could not refresh the session right now, try again"
   },
   "platform": {
     "roomNotFound": "Room not found",

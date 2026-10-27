@@ -32,10 +32,13 @@ export class ResetPasswordDto {
 }
 
 export class RefreshTokenDto {
-  @ApiProperty()
+  @ApiPropertyOptional({
+    description: 'Legacy: normally sent as the httpOnly cf_rt cookie.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(10)
-  refresh_token!: string;
+  refresh_token?: string;
 }
 
 export class LogoutDto {

@@ -21,6 +21,8 @@ async function bootstrap() {
   app.set('trust proxy', appConfig.trustProxyHops);
   app.enableCors({
     origin: appConfig.corsOriginOption,
+    // The refresh token travels as an httpOnly cookie on /api/auth requests.
+    credentials: true,
   });
   app.useGlobalInterceptors(new HttpLoggingInterceptor());
   app.useGlobalPipes(

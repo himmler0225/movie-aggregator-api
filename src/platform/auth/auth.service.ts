@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -24,6 +25,11 @@ import { assertAccountApproved } from './account-status.util';
 import { hashRefreshToken } from './auth-refresh.util';
 import { GoogleOAuthService } from './google-oauth.service';
 
+/** Supabase answers 404 / "User not found" for deleted accounts; anything else is transient. */
+function isUserMissingError(error: { status?: number; message?: string }) {
+  return error.status === 404 || /not.?found/i.test(error.message ?? '');
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -35,7 +41,10 @@ export class AuthService {
     private readonly appConfig: AppConfigService,
   ) {}
 
-  private async issueRefreshToken(userId: string): Promise<string> {
+  private async issueRefreshToken(
+    userId: string,
+    parentId?: string,
+  ): Promise<string> {
     const raw = randomBytes(48).toString('base64url');
     const tokenHash = hashRefreshToken(raw);
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
@@ -43,6 +52,7 @@ export class AuthService {
       userId,
       tokenHash,
       expiresAt,
+      parentId: parentId ?? null,
     });
     return raw;
   }
@@ -51,7 +61,9 @@ export class AuthService {
     user: { id: string; email: string },
     profile?: Profile | null,
     supabaseMeta?: Record<string, unknown>,
-    opts: { issueRefresh?: boolean } = { issueRefresh: true },
+    opts: { issueRefresh?: boolean; refreshParentId?: string } = {
+      issueRefresh: true,
+    },
   ): Promise<SessionResponse> {
     const expiresIn = ACCESS_TOKEN_TTL_SECONDS;
     const access_token = this.jwt.sign(
@@ -83,7 +95,10 @@ export class AuthService {
     };
 
     if (opts.issueRefresh !== false) {
-      session.refresh_token = await this.issueRefreshToken(user.id);
+      session.refresh_token = await this.issueRefreshToken(
+        user.id,
+        opts.refreshParentId,
+      );
     }
     return session;
   }
@@ -132,7 +147,7 @@ export class AuthService {
   private sessionFromSupabaseUser(
     user: SupabaseUser,
     profile?: Profile | null,
-    opts?: { issueRefresh?: boolean },
+    opts?: { issueRefresh?: boolean; refreshParentId?: string },
   ) {
     if (!user.email) throw new BadRequestException('auth.userNoEmail');
     return this.buildSession(
@@ -219,17 +234,35 @@ export class AuthService {
     if (!stored) {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
-    await this.refreshTokens.rotateByHash(tokenHash);
 
     const { data, error } = await this.supabase.getUserById(stored.userId);
-    if (error || !data.user?.email) {
+    if (error && !isUserMissingError(error)) {
+      // Supabase hiccup: not the client's fault. A 401 here used to log people out.
+      throw new ServiceUnavailableException('auth.refreshUnavailable');
+    }
+    if (!data?.user?.email) {
       throw new UnauthorizedException('auth.invalidRefreshToken');
     }
     const profile = await this.profiles.findById(stored.userId);
     assertAccountApproved(profile);
-    return this.sessionFromSupabaseUser(data.user, profile, {
+
+    // The presented token is NOT revoked here: if this response never reaches the
+    // browser (tab closed mid-request), the same token still works next time. It is
+    // retired when its replacement is used for the first time.
+    const session = await this.sessionFromSupabaseUser(data.user, profile, {
       issueRefresh: true,
+      refreshParentId: stored.id,
     });
+    await this.refreshTokens.retireAncestors(stored);
+    return session;
+  }
+
+  /** Revokes the session behind a refresh token (and its rotation chain). */
+  async logoutByToken(refreshToken: string): Promise<void> {
+    const stored = await this.refreshTokens.findOne({
+      tokenHash: hashRefreshToken(refreshToken.trim()),
+    });
+    if (stored) await this.logout(stored.userId, refreshToken);
   }
 
   async logout(userId: string, refreshToken?: string): Promise<{ ok: true }> {

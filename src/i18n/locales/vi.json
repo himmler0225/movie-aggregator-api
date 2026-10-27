@@ -28,7 +28,9 @@
     "adminRequired": "Yêu cầu quyền quản trị viên",
     "emailAlreadyRegistered": "Email đã được đăng ký",
     "accountPending": "Tài khoản của bạn đang chờ quản trị viên duyệt",
-    "accountRejected": "Yêu cầu đăng ký của bạn đã bị từ chối"
+    "accountRejected": "Yêu cầu đăng ký của bạn đã bị từ chối",
+    "invalidRefreshToken": "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại",
+    "refreshUnavailable": "Tạm thời không làm mới được phiên đăng nhập, thử lại sau"
   },
   "platform": {
     "roomNotFound": "Không tìm thấy phòng",

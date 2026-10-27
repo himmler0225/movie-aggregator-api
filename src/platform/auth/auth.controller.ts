@@ -2,14 +2,17 @@ import {
   Body,
   Controller,
   Get,
+  HttpException,
+  HttpStatus,
   Logger,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AppConfigService } from '../../config';
 import {
   FRONTEND_AUTH_CALLBACK_PATH,
@@ -27,6 +30,13 @@ import {
   UpdatePasswordDto,
 } from './dto/auth.dto';
 import { RateLimitGuard, RateLimit } from '../common/rate-limit.guard';
+import {
+  clearRefreshCookie,
+  readRefreshCookie,
+  setRefreshCookie,
+} from './refresh-cookie.util';
+
+type SessionWithRefresh = { refresh_token?: string };
 
 /** Approval-gate failures surfaced to the frontend as `/auth/callback?error=…`. */
 const GOOGLE_ACCOUNT_STATUS_ERRORS: Record<string, string> = {
@@ -43,6 +53,23 @@ export class AuthController {
     private readonly appConfig: AppConfigService,
   ) {}
 
+  // A method, not a getter: logRegisteredRoutes walks the prototype and would invoke it.
+  private secureCookies() {
+    return this.appConfig.apiPublicUrl.startsWith('https://');
+  }
+
+  /** Moves the refresh token from the JSON body into the httpOnly cookie. */
+  private withRefreshCookie<T extends SessionWithRefresh | null>(
+    res: Response,
+    session: T,
+  ): T {
+    if (session?.refresh_token) {
+      setRefreshCookie(res, session.refresh_token, this.secureCookies());
+      delete session.refresh_token;
+    }
+    return session;
+  }
+
   @Public()
   @Post('register')
   @UseGuards(RateLimitGuard)
@@ -55,8 +82,14 @@ export class AuthController {
   @Post('login')
   @UseGuards(RateLimitGuard)
   @RateLimit(RATE_LIMIT.authLogin)
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.withRefreshCookie(
+      res,
+      await this.auth.login(dto.email, dto.password),
+    );
   }
 
   @Public()
@@ -64,25 +97,55 @@ export class AuthController {
   @UseGuards(RateLimitGuard)
   @RateLimit(RATE_LIMIT.authRefresh)
   @ApiOperation({ summary: 'Rotate refresh token and issue a new access JWT' })
-  refresh(@Body() dto: RefreshTokenDto) {
-    return this.auth.refresh(dto.refresh_token);
+  async refresh(
+    @Body() dto: RefreshTokenDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Body token: one-time upgrade for browsers that still hold it in localStorage.
+    const token = readRefreshCookie(req) ?? dto?.refresh_token;
+    try {
+      return this.withRefreshCookie(res, await this.auth.refresh(token ?? ''));
+    } catch (error) {
+      if (
+        error instanceof HttpException &&
+        error.getStatus() === Number(HttpStatus.UNAUTHORIZED)
+      ) {
+        clearRefreshCookie(res, this.secureCookies());
+      }
+      throw error;
+    }
   }
 
   @ApiBearerAuth()
   @Get('session')
   async session(
     @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
     @Query('issue_refresh') issueRefresh?: string,
   ) {
-    return this.auth.getSession(user.id, {
-      issueRefresh: issueRefresh === '1',
-    });
+    return this.withRefreshCookie(
+      res,
+      await this.auth.getSession(user.id, {
+        issueRefresh: issueRefresh === '1',
+      }),
+    );
   }
 
   @ApiBearerAuth()
   @Post('logout')
-  logout(@CurrentUser() user: AuthUser, @Body() dto: LogoutDto) {
-    return this.auth.logout(user.id, dto?.refresh_token);
+  @Public()
+  async logout(
+    @Body() dto: LogoutDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Public: logging out must work with an expired access token too; the refresh
+    // token itself identifies the session to revoke.
+    const token = readRefreshCookie(req) ?? dto?.refresh_token;
+    clearRefreshCookie(res, this.secureCookies());
+    if (token) await this.auth.logoutByToken(token);
+    return { ok: true };
   }
 
   @ApiBearerAuth()
@@ -139,13 +202,11 @@ export class AuthController {
     try {
       const { session, frontendRedirect } =
         await this.auth.handleGoogleCallback(code, state);
+      this.withRefreshCookie(res, session);
       const hash = new URLSearchParams({
         access_token: session.access_token,
         expires_at: String(session.expires_at),
       });
-      if (session.refresh_token) {
-        hash.set('refresh_token', session.refresh_token);
-      }
       return res.redirect(`${frontendRedirect}#${hash.toString()}`);
     } catch (err) {
       const statusError =

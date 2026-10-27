@@ -34,22 +34,37 @@ describe('RefreshTokensRepository', () => {
     );
   });
 
-  it('only stamps revokedAt once on rotation, so the grace never extends', async () => {
+  it('retires the parent and siblings once a replacement token is used', async () => {
     const { repository, delegate } = repo();
-    await repository.rotateByHash('hash');
-    expect(delegate.updateMany).toHaveBeenCalledWith({
-      where: { tokenHash: 'hash', revokedAt: null },
-      data: { revokedAt: new Date('2026-10-04T00:00:00Z') },
+    await repository.retireAncestors({ id: 'child', parentId: 'parent' });
+    expect(delegate.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [{ id: 'parent' }, { parentId: 'parent', id: { not: 'child' } }],
+      },
     });
   });
 
-  it('logout deletes the token and the user rotated tokens still in grace', async () => {
+  it('keeps root tokens (no parent) untouched', async () => {
     const { repository, delegate } = repo();
+    await repository.retireAncestors({ id: 'root', parentId: null });
+    expect(delegate.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('logout deletes the token, its rotation chain and legacy rotated tokens', async () => {
+    const { repository, delegate } = repo();
+    delegate.findFirst.mockResolvedValueOnce({ id: 't', parentId: 'p' });
     await repository.deleteForLogout('user-1', 'hash');
     expect(delegate.deleteMany).toHaveBeenCalledWith({
       where: {
         userId: 'user-1',
-        OR: [{ tokenHash: 'hash' }, { revokedAt: { not: null } }],
+        OR: [
+          { tokenHash: 'hash' },
+          { revokedAt: { not: null } },
+          { id: 't' },
+          { parentId: 't' },
+          { id: 'p' },
+          { parentId: 'p' },
+        ],
       },
     });
   });

@@ -264,9 +264,12 @@ model RefreshToken {
   tokenHash String    @unique @map("token_hash")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
+  /// Token this one replaced; the parent stays valid until this token is first used.
+  parentId  String?   @map("parent_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([parentId])
   @@map("refresh_tokens")
 }
