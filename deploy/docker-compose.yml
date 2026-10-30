@@ -1,10 +1,19 @@
 # Copied to /opt/cine-flow by deploy/setup.sh. Layout:
 #   /opt/cine-flow/{docker-compose.yml, cine-flow/, movie-aggregator-api/}
+
+# Container logs are capped (3 x 10MB each) so they can't fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   redis:
     image: redis:7-alpine
     container_name: cineflow-redis
     restart: unless-stopped
+    logging: *logging
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -17,6 +26,7 @@ services:
       context: ./movie-aggregator-api
     container_name: cineflow-backend
     restart: unless-stopped
+    logging: *logging
     env_file:
       - ./movie-aggregator-api/.env
     environment:
@@ -27,6 +37,14 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:3001:3001"
+    # Unhealthy containers are restarted by the cron job installed by setup.sh
+    # (Docker itself only restarts containers that exit).
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
   frontend:
     build:
@@ -36,5 +54,12 @@ services:
         VITE_SITE_URL: https://review-mine.com
     container_name: cineflow-frontend
     restart: unless-stopped
+    logging: *logging
     ports:
       - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/robots.txt"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
