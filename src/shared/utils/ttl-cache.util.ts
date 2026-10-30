@@ -56,6 +56,10 @@ export class TtlCache<T> {
     return promise;
   }
 
+  delete(key: string) {
+    this.entries.delete(key);
+  }
+
   clear() {
     this.entries.clear();
     this.pending.clear();

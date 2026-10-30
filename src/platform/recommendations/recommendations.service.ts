@@ -50,10 +50,13 @@ export class RecommendationsService {
     private readonly movies: MoviesService,
   ) {}
 
-  forUser(userId: string): Promise<Recommendations> {
-    return this.cache.getOrLoad(userId, CACHE_TTL_MS, () =>
+  async forUser(userId: string): Promise<Recommendations> {
+    const result = await this.cache.getOrLoad(userId, CACHE_TTL_MS, () =>
       this.compute(userId),
     );
+    // Not enough history yet: recompute next time instead of hiding the row for 30 min.
+    if (result.items.length === 0) this.cache.delete(userId);
+    return result;
   }
 
   private async compute(userId: string): Promise<Recommendations> {
