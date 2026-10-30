@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RepositoriesModule } from '../../database/repositories/repositories.module';
 import { AuthModule } from '../auth/auth.module';
 import { MoviesModule } from '../../movies/movies.module';
+import { PushModule } from '../push/push.module';
 import { DanmakuModule } from '../danmaku/danmaku.module';
 import { MomentsModule } from '../moments/moments.module';
 import { WatchPartyController } from './watch-party.controller';
@@ -17,6 +18,7 @@ import { WatchPartySchedulerService } from './watch-party-scheduler.service';
     DanmakuModule,
     MomentsModule,
     MoviesModule,
+    PushModule,
   ],
   controllers: [WatchPartyController],
   providers: [

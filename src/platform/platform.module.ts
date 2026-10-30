@@ -11,6 +11,9 @@ import { RatingsModule } from './ratings/ratings.module';
 import { WatchHistoryModule } from './watch-history/watch-history.module';
 import { WatchPartyModule } from './watch-party/watch-party.module';
 import { PreferencesModule } from './preferences/preferences.module';
+import { PushModule } from './push/push.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
+import { SkipMarkersModule } from './skip-markers/skip-markers.module';
 import { WatchlistsModule } from './watchlists/watchlists.module';
 
 @Module({
@@ -25,6 +28,9 @@ import { WatchlistsModule } from './watchlists/watchlists.module';
     WatchHistoryModule,
     WatchlistsModule,
     PreferencesModule,
+    SkipMarkersModule,
+    PushModule,
+    RecommendationsModule,
     WatchPartyModule,
     AdminModule,
     AnalyticsModule,

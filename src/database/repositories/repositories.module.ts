@@ -11,6 +11,9 @@ import { RoomMembersRepository } from './room-members.repository';
 import { RoomRemindersRepository } from './room-reminders.repository';
 import { RoomMessagesRepository } from './room-messages.repository';
 import { SearchLogsRepository } from './search-logs.repository';
+import { SkipMarksRepository } from './skip-marks.repository';
+import { PushSubscriptionsRepository } from './push-subscriptions.repository';
+import { SeriesEpisodeStateRepository } from './series-episode-state.repository';
 import { UserPreferencesRepository } from './user-preferences.repository';
 import { UserWatchlistsRepository } from './user-watchlists.repository';
 import { WatchEventsRepository } from './watch-events.repository';
@@ -37,6 +40,9 @@ const repositories = [
   MomentReactionsRepository,
   RoomRemindersRepository,
   UserPreferencesRepository,
+  SkipMarksRepository,
+  PushSubscriptionsRepository,
+  SeriesEpisodeStateRepository,
 ];
 
 @Module({

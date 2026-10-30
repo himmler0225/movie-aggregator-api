@@ -46,6 +46,7 @@
     "danmakuNotFound": "Comment not found",
     "danmakuTooLong": "Danmaku comments can be at most 200 characters",
     "invalidSchedule": "Scheduled time must be in the future and within 7 days",
-    "roomNotScheduled": "This room is not scheduled for a future time"
+    "roomNotScheduled": "This room is not scheduled for a future time",
+    "skipMarkInvalidRange": "A marked segment must be 3 seconds to 10 minutes long"
   }
 }

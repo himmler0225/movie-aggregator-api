@@ -4,6 +4,7 @@ import type { RedisService } from '../../infra/redis';
 import type { WatchPartyGateway } from './watch-party.gateway';
 import { WatchPartySchedulerService } from './watch-party-scheduler.service';
 import { WatchPartyStore } from './watch-party.store';
+import type { PushService } from '../push/push.service';
 
 const NOW = new Date('2026-10-01T12:00:00Z');
 
@@ -48,18 +49,20 @@ function setup() {
   const store = new WatchPartyStore({
     getClient: () => null,
   } as unknown as RedisService);
+  const push = { sendToUsers: jest.fn().mockResolvedValue(1) };
   const scheduler = new WatchPartySchedulerService(
     rooms as unknown as WatchRoomsRepository,
     reminders as unknown as RoomRemindersRepository,
     gateway as unknown as WatchPartyGateway,
     store,
+    push as unknown as PushService,
   );
-  return { scheduler, reminders, rooms, gateway };
+  return { scheduler, reminders, rooms, gateway, push };
 }
 
 describe('WatchPartySchedulerService', () => {
   it('sends each due reminder once with the time left', async () => {
-    const { scheduler, reminders, gateway } = setup();
+    const { scheduler, reminders, gateway, push } = setup();
     const due = [
       {
         id: 'rem-1',
@@ -77,6 +80,13 @@ describe('WatchPartySchedulerService', () => {
       expect.objectContaining({
         starts_in_seconds: 240,
         room: expect.objectContaining({ code: 'AAAA' }) as unknown,
+      }),
+    );
+    expect(push.sendToUsers).toHaveBeenCalledWith(
+      ['user-1'],
+      expect.objectContaining({
+        title: 'Phòng xem chung bắt đầu sau 4 phút',
+        url: '/watch-party/AAAA',
       }),
     );
     const [from, to] = reminders.findDue.mock.calls[0] as [Date, Date];

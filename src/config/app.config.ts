@@ -53,6 +53,11 @@ export function loadAppConfig(): AppConfig {
     googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '',
     redisUrl: process.env.REDIS_URL?.trim() ?? '',
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() ?? '',
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY?.trim() ?? '',
+    vapidSubject:
+      process.env.VAPID_SUBJECT?.trim() ||
+      stripTrailingSlash(process.env.FRONTEND_URL ?? APP_URL_DEFAULTS.frontend),
   };
 }
 

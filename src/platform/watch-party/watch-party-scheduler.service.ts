@@ -3,6 +3,7 @@ import { RoomRemindersRepository } from '../../database/repositories/room-remind
 import { WatchRoomsRepository } from '../../database/repositories/watch-rooms.repository';
 import { AppLogger } from '../../shared/logger';
 import { mapWatchRoom } from '../mappers';
+import { PushService } from '../push/push.service';
 import { WatchPartyGateway } from './watch-party.gateway';
 import { WatchPartyStore } from './watch-party.store';
 
@@ -32,6 +33,7 @@ export class WatchPartySchedulerService
     private readonly reminders: RoomRemindersRepository,
     private readonly gateway: WatchPartyGateway,
     private readonly store: WatchPartyStore,
+    private readonly push: PushService,
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => void this.tick(), TICK_MS);
@@ -62,14 +64,29 @@ export class WatchPartySchedulerService
     for (const reminder of due) {
       if (!(await this.reminders.claim(reminder.id, now))) continue;
       const startsAt = reminder.room.scheduledAt?.getTime() ?? now.getTime();
+      const startsInSeconds = Math.max(
+        0,
+        Math.round((startsAt - now.getTime()) / 1000),
+      );
       this.gateway.emitToUser(reminder.userId, 'reminder:due', {
         room: mapWatchRoom(reminder.room),
-        starts_in_seconds: Math.max(
-          0,
-          Math.round((startsAt - now.getTime()) / 1000),
-        ),
+        starts_in_seconds: startsInSeconds,
         server_time: now.toISOString(),
       });
+      // Also reaches people without the site open (best effort).
+      void this.push
+        .sendToUsers([reminder.userId], {
+          title:
+            startsInSeconds > 60
+              ? `Phòng xem chung bắt đầu sau ${Math.ceil(startsInSeconds / 60)} phút`
+              : 'Phòng xem chung đang bắt đầu',
+          body:
+            reminder.room.title || reminder.room.movieName || 'Vào phòng ngay',
+          url: `/watch-party/${reminder.room.code}`,
+          icon: reminder.room.thumbUrl ?? undefined,
+          tag: `room:${reminder.room.id}`,
+        })
+        .catch(() => undefined);
     }
   }
   private async announceStarts(now: Date) {

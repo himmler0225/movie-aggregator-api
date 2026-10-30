@@ -101,6 +101,46 @@ model UserPreference {
   @@map("user_preferences")
 }
 
+model SkipMark {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  movieSlug   String   @map("movie_slug")
+  episodeName String   @map("episode_name")
+  /// "intro" | "outro"
+  kind        String
+  startSec    Float    @map("start_sec")
+  endSec      Float    @map("end_sec")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, movieSlug, episodeName, kind])
+  @@index([movieSlug, episodeName])
+  @@map("skip_marks")
+}
+
+model PushSubscription {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// Last episode seen per series by the new-episode push job.
+model SeriesEpisodeState {
+  movieSlug      String   @id @map("movie_slug")
+  episodeCurrent String   @map("episode_current")
+  checkedAt      DateTime @default(now()) @map("checked_at")
+
+  @@map("series_episode_state")
+}
+
 model WatchRoom {
   id               String    @id @default(uuid()) @db.Uuid
   code             String    @unique

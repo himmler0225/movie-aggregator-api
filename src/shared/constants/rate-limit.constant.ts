@@ -16,6 +16,16 @@ export const RATE_LIMIT = {
     limit: 10,
     windowMs: 60000,
   },
+  skipMark: {
+    keyPrefix: 'skip-mark',
+    limit: 20,
+    windowMs: 60000,
+  },
+  pushSubscribe: {
+    keyPrefix: 'push-sub',
+    limit: 10,
+    windowMs: 60000,
+  },
   danmaku: {
     keyPrefix: 'danmaku',
     limit: 20,

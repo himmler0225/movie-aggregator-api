@@ -77,9 +77,21 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 chmod 600 "$ENV_FILE"
 
+# Web push needs a VAPID key pair; generate one once and keep it (changing it
+# invalidates every browser subscription).
+if ! grep -q '^VAPID_PRIVATE_KEY=.' "$ENV_FILE"; then
+  log "Generating VAPID keys for web push"
+  KEYS=$(docker run --rm node:22-alpine npx -y web-push@3.6.7 generate-vapid-keys --json)
+  PUB=$(printf '%s' "$KEYS" | sed -E 's/.*"publicKey":"([^"]+)".*/\1/')
+  PRIV=$(printf '%s' "$KEYS" | sed -E 's/.*"privateKey":"([^"]+)".*/\1/')
+  sed -i '/^VAPID_/d' "$ENV_FILE"
+  printf 'VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\nVAPID_SUBJECT=https://review-mine.com\n' "$PUB" "$PRIV" >> "$ENV_FILE"
+  unset KEYS PUB PRIV
+fi
+
 log "Database migrations (idempotent)"
 DIRECT_URL=$(grep '^DIRECT_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"')
-for f in user-preferences-migration.sql refresh-tokens-parent-migration.sql; do
+for f in user-preferences-migration.sql refresh-tokens-parent-migration.sql quick-features-migration.sql; do
   docker run --rm -i postgres:16-alpine psql "$DIRECT_URL" -q -v ON_ERROR_STOP=1 \
     < "movie-aggregator-api/prisma/$f"
   echo "$f OK"

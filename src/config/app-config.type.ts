@@ -12,4 +12,8 @@ export interface AppConfig {
   googleClientId: string;
   googleClientSecret: string;
   redisUrl: string;
+  /** Web push (VAPID); push notifications are off when either key is empty. */
+  vapidPublicKey: string;
+  vapidPrivateKey: string;
+  vapidSubject: string;
 }

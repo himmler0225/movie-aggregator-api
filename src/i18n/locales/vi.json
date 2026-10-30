@@ -46,6 +46,7 @@
     "danmakuNotFound": "Không tìm thấy bình luận",
     "danmakuTooLong": "Bình luận bay tối đa 200 ký tự",
     "invalidSchedule": "Giờ hẹn phải ở tương lai và trong vòng 7 ngày",
-    "roomNotScheduled": "Phòng này không có lịch hẹn sắp tới"
+    "roomNotScheduled": "Phòng này không có lịch hẹn sắp tới",
+    "skipMarkInvalidRange": "Đoạn đánh dấu phải dài từ 3 giây đến 10 phút"
   }
 }

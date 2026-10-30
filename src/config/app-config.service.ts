@@ -61,6 +61,16 @@ export class AppConfigService {
   get isRedisConfigured() {
     return Boolean(this.redisUrl);
   }
+  get vapid() {
+    const { vapidPublicKey, vapidPrivateKey, vapidSubject } = this.values;
+    return vapidPublicKey && vapidPrivateKey
+      ? {
+          publicKey: vapidPublicKey,
+          privateKey: vapidPrivateKey,
+          subject: vapidSubject,
+        }
+      : null;
+  }
   get corsOriginOption(): string[] | true {
     return resolveCorsOriginOption(this.corsOrigins);
   }
