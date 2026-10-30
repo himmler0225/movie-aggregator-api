@@ -87,6 +87,9 @@ model UserWatchlist {
   name      String
   slugs     String[] @default([])
   createdAt DateTime @default(now()) @map("created_at")
+  /// Set the first time the list is shared; kept when sharing is turned off.
+  shareId   String?  @unique @map("share_id")
+  isPublic  Boolean  @default(false) @map("is_public")
 
   @@unique([userId, listKey])
   @@index([userId])
@@ -134,11 +137,24 @@ model PushSubscription {
 
 /// Last episode seen per series by the new-episode push job.
 model SeriesEpisodeState {
-  movieSlug      String   @id @map("movie_slug")
-  episodeCurrent String   @map("episode_current")
-  checkedAt      DateTime @default(now()) @map("checked_at")
+  movieSlug       String   @id @map("movie_slug")
+  episodeCurrent  String   @map("episode_current")
+  /// Last episode a "new episode" push went out for (null = never notified yet).
+  notifiedEpisode String?  @map("notified_episode")
+  checkedAt       DateTime @default(now()) @map("checked_at")
 
   @@map("series_episode_state")
+}
+
+/// When a series was seen moving to a new episode (feeds the release schedule).
+model SeriesEpisodeEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  movieSlug String   @map("movie_slug")
+  episode   String
+  seenAt    DateTime @default(now()) @map("seen_at")
+
+  @@index([movieSlug, seenAt])
+  @@map("series_episode_events")
 }
 
 model WatchRoom {

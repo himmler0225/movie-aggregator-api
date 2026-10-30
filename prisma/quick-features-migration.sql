@@ -31,9 +31,27 @@ CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
 CREATE TABLE IF NOT EXISTS public.series_episode_state (
   movie_slug text PRIMARY KEY,
   episode_current text NOT NULL,
+  notified_episode text,
   checked_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.series_episode_state
+  ADD COLUMN IF NOT EXISTS notified_episode text;
+
+CREATE TABLE IF NOT EXISTS public.series_episode_events (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  movie_slug text NOT NULL,
+  episode text NOT NULL,
+  seen_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS series_episode_events_slug_idx
+  ON public.series_episode_events (movie_slug, seen_at);
+ALTER TABLE public.series_episode_events ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.skip_marks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.series_episode_state ENABLE ROW LEVEL SECURITY;
+
+-- Shareable watchlists.
+ALTER TABLE public.user_watchlists
+  ADD COLUMN IF NOT EXISTS share_id text UNIQUE,
+  ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;

@@ -12,6 +12,8 @@ import { WatchHistoryModule } from './watch-history/watch-history.module';
 import { WatchPartyModule } from './watch-party/watch-party.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { PushModule } from './push/push.module';
+import { SeriesModule } from './series/series.module';
+import { WrappedModule } from './wrapped/wrapped.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { SkipMarkersModule } from './skip-markers/skip-markers.module';
 import { WatchlistsModule } from './watchlists/watchlists.module';
@@ -30,6 +32,8 @@ import { WatchlistsModule } from './watchlists/watchlists.module';
     PreferencesModule,
     SkipMarkersModule,
     PushModule,
+    SeriesModule,
+    WrappedModule,
     RecommendationsModule,
     WatchPartyModule,
     AdminModule,

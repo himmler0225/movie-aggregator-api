@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  IsBoolean,
   IsArray,
   IsInt,
   IsString,
@@ -34,4 +35,10 @@ export class SaveWatchlistsDto {
   @ValidateNested({ each: true })
   @Type(() => WatchlistItemDto)
   lists!: WatchlistItemDto[];
+}
+
+export class ShareWatchlistDto {
+  @ApiProperty()
+  @IsBoolean()
+  public!: boolean;
 }

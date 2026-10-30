@@ -43,4 +43,18 @@ export class UserWatchlistsRepository extends BaseRepository<UserWatchlist> {
       ),
     ]);
   }
+  findByShareId(shareId: string) {
+    return this.findOne({ shareId, isPublic: true });
+  }
+  setSharing(
+    userId: string,
+    listKey: string,
+    isPublic: boolean,
+    shareId?: string,
+  ) {
+    return this.prisma.userWatchlist.update({
+      where: { userId_listKey: { userId, listKey } },
+      data: { isPublic, ...(shareId ? { shareId } : {}) },
+    });
+  }
 }
