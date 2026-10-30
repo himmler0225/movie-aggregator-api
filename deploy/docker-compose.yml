@@ -1,0 +1,40 @@
+# Copied to /opt/cine-flow by deploy/setup.sh. Layout:
+#   /opt/cine-flow/{docker-compose.yml, cine-flow/, movie-aggregator-api/}
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cineflow-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./movie-aggregator-api
+    container_name: cineflow-backend
+    restart: unless-stopped
+    env_file:
+      - ./movie-aggregator-api/.env
+    environment:
+      PORT: "3001"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+
+  frontend:
+    build:
+      context: ./cine-flow
+      args:
+        VITE_MOVIE_API_URL: https://be.review-mine.com
+        VITE_SITE_URL: https://review-mine.com
+    container_name: cineflow-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
