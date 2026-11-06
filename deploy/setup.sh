@@ -106,6 +106,14 @@ docker image prune -f >/dev/null
 log "nginx + HTTPS"
 install -m 644 "$DEPLOY/nginx/proxy-common.conf" /etc/nginx/snippets/cineflow-proxy.conf
 rm -f /etc/nginx/sites-enabled/default
+
+# Ubuntu's stock nginx.conf still allows TLSv1/TLSv1.1. Tighten it in place
+# (idempotent) and keep it in sync with the site config, which must NOT
+# declare ssl_protocols / ssl_prefer_server_ciphers again (nginx would refuse
+# to start with "directive is duplicate").
+if grep -qE '^\s*ssl_protocols\s' /etc/nginx/nginx.conf; then
+  sed -i 's|^\(\s*\)ssl_protocols\s.*$|\1ssl_protocols TLSv1.2 TLSv1.3;|' /etc/nginx/nginx.conf
+fi
 if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
   if [ -z "$EMAIL" ]; then
     echo "No certificate yet: re-run with your email, e.g. bash setup.sh you@example.com" >&2
@@ -130,9 +138,23 @@ cat > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh <<'HOOK'
 systemctl reload nginx
 HOOK
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+
+# Install the site config, but never leave a broken one in place: if `nginx -t`
+# fails we restore the previous file and keep serving with it. A bad config here
+# silently takes the whole site down (nginx refuses to start).
 install -m 644 "$DEPLOY/nginx/cineflow.conf" /etc/nginx/sites-available/cineflow
 ln -sf /etc/nginx/sites-available/cineflow /etc/nginx/sites-enabled/cineflow
-nginx -t
+if ! nginx -t; then
+  echo "nginx config test failed — restoring the previous site config." >&2
+  if [ -f /etc/nginx/sites-available/cineflow.bak ]; then
+    install -m 644 /etc/nginx/sites-available/cineflow.bak /etc/nginx/sites-available/cineflow
+  else
+    rm -f /etc/nginx/sites-enabled/cineflow
+  fi
+  nginx -t && systemctl reload nginx
+  exit 1
+fi
+cp -a /etc/nginx/sites-available/cineflow /etc/nginx/sites-available/cineflow.bak
 systemctl reload nginx
 
 log "Scheduled jobs: DB backup, self-healing, cleanup"
